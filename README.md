@@ -1,5 +1,10 @@
 # Spine SDK Plugin
 
+This directory is the **only** source of the Pi/DSH Spine plugin. Daily Pi
+should `pi install` `packages/plugin` from here. EvoClaw vendor copies must be
+cut from a git commit of this repo, not a second tree. Pi loads `dist/`; rebuild
+after source changes (`npm run build` and `scripts/build-node-wasm.sh`).
+
 This repository is the portable Spine product boundary for Node agent hosts.
 It packages one Rust semantic kernel behind a narrow WASM ABI, a TypeScript SDK,
 one shared transaction controller, and explicit Pi and DeepSeek Harness plugin

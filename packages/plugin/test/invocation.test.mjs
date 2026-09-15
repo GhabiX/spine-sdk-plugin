@@ -23,6 +23,30 @@ test("npm dist/cli.js keeps an empty execArgv image", () => {
   );
 });
 
+test("tsx CLI plus cli.ts keeps the tsx prefix in front of the Pi entry", () => {
+  assert.deepEqual(
+    resolvePiInvocation(
+      {
+        execPath: "/usr/bin/node",
+        execArgv: [],
+        argv: [
+          "/usr/bin/node",
+          "/abs/tsx",
+          "--tsconfig",
+          "/abs/tsconfig.json",
+          "/abs/cli.ts",
+          "--print",
+        ],
+      },
+      exists,
+    ),
+    {
+      command: "/usr/bin/node",
+      args: ["/abs/tsx", "--tsconfig", "/abs/tsconfig.json", "/abs/cli.ts"],
+    },
+  );
+});
+
 test("tsx loaders stay in front of cli.ts", () => {
   assert.deepEqual(
     resolvePiInvocation(

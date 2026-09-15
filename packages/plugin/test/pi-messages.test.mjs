@@ -24,6 +24,7 @@ test("Pi source observations preserve native messages outside the semantic core"
   assert.equal(observation.character.type, "message");
   assert.equal(observation.character.role, "user");
   assert.equal(observation.character.boundary, 7);
+  assert.equal(observation.character.type === "message" ? observation.character.content : null, "<image>inspect");
   assert.deepEqual(observation.message, message);
   assert.deepEqual(sourceObservation({
     role: "toolResult",

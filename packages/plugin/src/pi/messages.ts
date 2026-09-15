@@ -101,10 +101,29 @@ export function sourceObservation(
       type: "message",
       boundary,
       role,
-      content: stableJson(message),
+      content: sourceCharacterContent(message),
     },
     message,
   };
+}
+
+function sourceCharacterContent(message: PiAgentMessage): string {
+  const content = "content" in message ? message.content : undefined;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  const parts: string[] = [];
+  for (const part of content) {
+    if (part.type === "text") {
+      parts.push(part.text);
+    } else if (part.type === "image") {
+      parts.push("<image>");
+    }
+  }
+  return parts.join("");
 }
 
 export class PiSourceBindings {
@@ -172,6 +191,9 @@ function materializeProjection(
     const live = status === "Live" || status === "Opened";
     const prompt = live ? nodePrompt.trim() : "";
     const inner = prompt.length > 0 ? `\n${prompt}\n` : "\n";
+    // Pi's LLM adapter has no developer role (Codex uses developer for this
+    // fragment). The <spine_node> tag is the model-visible marker; convertToLlm
+    // would still send a custom/developer stand-in as user.
     return userMessage(
       `<spine_node id="${nodeId.join(".")}" summary="${escapeXmlAttribute(summary)}" status="${status.toLowerCase()}">${inner}</spine_node>`,
     );

@@ -21,6 +21,13 @@ export function resolvePiInvocation(
   image: ProcessImage,
   exists: (path: string) => boolean = existsSync,
 ): PiInvocation {
+  const cliIndex = findPiCliIndex(image.argv, exists);
+  if (cliIndex >= 1) {
+    return {
+      command: image.execPath,
+      args: [...childExecArgv(image.execArgv), ...image.argv.slice(1, cliIndex + 1)],
+    };
+  }
   const script = image.argv[1];
   if (script !== undefined && !script.startsWith("/$bunfs/root/") && exists(script)) {
     return {
@@ -32,6 +39,20 @@ export function resolvePiInvocation(
   return /^(node|bun)(\.exe)?$/.test(executable)
     ? { command: "pi", args: [] }
     : { command: image.execPath, args: [] };
+}
+
+function findPiCliIndex(argv: readonly string[], exists: (path: string) => boolean): number {
+  for (let i = argv.length - 1; i >= 1; i -= 1) {
+    const arg = argv[i]!;
+    if (arg.startsWith("-") || arg.startsWith("/$bunfs/root/")) {
+      continue;
+    }
+    const name = basename(arg);
+    if ((name === "cli.ts" || name === "cli.js") && exists(arg)) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 function childExecArgv(execArgv: readonly string[]): string[] {
