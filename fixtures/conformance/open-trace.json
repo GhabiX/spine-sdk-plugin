@@ -1,0 +1,29 @@
+{
+  "schema": "spine-conformance-trace/v1",
+  "sources": [
+    {
+      "type": "message",
+      "boundary": 0,
+      "role": "user",
+      "content": "Implement the requested feature."
+    }
+  ],
+  "samplingSources": [
+    {
+      "type": "message",
+      "boundary": 1,
+      "role": "assistant",
+      "content": "Opening the requested implementation scope."
+    }
+  ],
+  "promptDigest": "74c411762dfa4a39499b1015ff83c6132e092f6ee0852a469963b4bf61f7d1a9",
+  "execution": {
+    "key": "open-1",
+    "executionRef": "host-execution-1",
+    "operation": {
+      "type": "open",
+      "summary": "Implement the requested feature"
+    }
+  },
+  "terminal": "completed"
+}

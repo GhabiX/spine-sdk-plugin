@@ -1,0 +1,73 @@
+import { createRequire } from "node:module";
+
+import {
+  encodeInit,
+  type FeatureFlag,
+  type SafeInteger,
+  type ThreadNamespace,
+} from "./protocol.js";
+import { SpineRuntimeClient, type RuntimeTransport } from "./runtime.js";
+
+interface WasmSpineRuntime {
+  dispatch(requestJson: string): string;
+  extend_system_prompt(base: string): string;
+  free(): void;
+}
+
+interface WasmSpineRuntimeConstructor {
+  new(initJson: string): WasmSpineRuntime;
+}
+
+const require = createRequire(import.meta.url);
+const binding = require("../wasm/node/spine_wasm.cjs") as {
+  SpineRuntime: WasmSpineRuntimeConstructor;
+};
+
+export interface NodeSpineRuntimeOptions {
+  thread: ThreadNamespace;
+  epoch?: SafeInteger;
+  configToml?: string | null;
+  features?: FeatureFlag[];
+}
+
+export interface NodeSpineRuntime {
+  client: SpineRuntimeClient;
+  extendSystemPrompt(base: string): string;
+  dispose(): void;
+}
+
+/** Creates one stateful portable runtime backed by the packaged Node WASM artifact. */
+export function createNodeSpineRuntime(options: NodeSpineRuntimeOptions): NodeSpineRuntime {
+  const native = new binding.SpineRuntime(
+    encodeInit({
+      thread: options.thread,
+      ...(options.epoch === undefined ? {} : { epoch: options.epoch }),
+      ...(options.configToml === undefined ? {} : { config_toml: options.configToml }),
+      ...(options.features === undefined ? {} : { features: options.features }),
+    }),
+  );
+  let disposed = false;
+  const transport: RuntimeTransport = {
+    dispatch(requestJson) {
+      if (disposed) {
+        throw new Error("Spine Node runtime is disposed");
+      }
+      return native.dispatch(requestJson);
+    },
+  };
+  return {
+    client: new SpineRuntimeClient(transport),
+    extendSystemPrompt(base: string) {
+      if (disposed) {
+        throw new Error("Spine Node runtime is disposed");
+      }
+      return native.extend_system_prompt(base);
+    },
+    dispose() {
+      if (!disposed) {
+        disposed = true;
+        native.free();
+      }
+    },
+  };
+}

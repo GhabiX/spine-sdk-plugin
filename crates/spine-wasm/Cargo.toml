@@ -1,0 +1,17 @@
+[package]
+name = "spine-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+spine-core.workspace = true
+thiserror.workspace = true
+wasm-bindgen.workspace = true

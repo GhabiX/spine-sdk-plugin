@@ -1,0 +1,9 @@
+{
+  "schema": "spine-core-source/v1",
+  "package": "spine-core",
+  "version": "0.5.0",
+  "repository": "https://github.com/GhabiX/SpineCodex.git",
+  "revision": "de5093581b751ed48dcadbe85cbc0613162a9f17",
+  "subdirectory": "codex-rs/spine-core",
+  "developmentPath": "../codex-home/codex/codex-rs/spine-core"
+}

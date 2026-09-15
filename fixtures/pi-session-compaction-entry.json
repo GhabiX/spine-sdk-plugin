@@ -1,0 +1,10 @@
+{
+  "type": "compaction",
+  "id": "pi-compaction-1",
+  "parentId": "pi-custom-1",
+  "timestamp": "2026-08-22T17:00:00.000Z",
+  "summary": "checkpoint",
+  "firstKeptEntryId": "pi-message-1",
+  "tokensBefore": 12,
+  "fromHook": true
+}

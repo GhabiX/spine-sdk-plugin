@@ -1,0 +1,172 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  decodeSpawnTasks,
+  buildCompactBarrier,
+  operationFromPiToolCall,
+  PiSamplingLifecycle,
+  PiSamplingLifecycleError,
+  PiSourceBindings,
+  providerPayloadDigest,
+} from "../dist/pi/index.js";
+
+const SOURCE = {
+  schema: "spine.source.snapshot.v1",
+  thread: "session",
+  epoch: 0,
+  cells: [],
+};
+
+function harness() {
+  const log = [];
+  const adapter = {
+    fault: null,
+    async observeSources(characters) {
+      log.push(["observe", characters]);
+      return characters.map((character) => ({
+        thread: "session",
+        epoch: 0,
+        ordinal: character.boundary,
+      }));
+    },
+    async previewAndPublish() { log.push(["preview"]); },
+    async beginSampling(digest) { log.push(["begin", digest]); },
+    async registerExecution(key) { log.push(["register", key]); },
+    async stageExecution(key, executionRef, operation) {
+      log.push(["stage", key, executionRef, operation]);
+    },
+    async finishExecution(key, succeeded) { log.push(["finish-execution", key, succeeded]); },
+    async finishSampling(terminal, inputTokens) {
+      log.push(["finish-sampling", terminal, inputTokens]);
+    },
+  };
+  const bindings = new PiSourceBindings();
+  return { log, bindings, lifecycle: new PiSamplingLifecycle(adapter, bindings, SOURCE) };
+}
+
+test("Pi lifecycle admits source, persists sampling start, and commits one turn", async () => {
+  const { log, bindings, lifecycle } = harness();
+  const user = { role: "user", content: "request", timestamp: 1 };
+  await lifecycle.observeMessage(user);
+  await lifecycle.previewContext();
+  await lifecycle.beginSampling({ model: "test", input: ["request"] });
+  await lifecycle.finishTurn({
+    aborted: false,
+    message: {
+      role: "assistant",
+      content: [],
+      stopReason: "stop",
+      usage: { input: 17, cacheRead: 3, cacheWrite: 4 },
+      timestamp: 2,
+    },
+  });
+
+  assert.deepEqual(bindings.resolve({ thread: "session", epoch: 0, ordinal: 0 }), user);
+  assert.deepEqual(log.map(([kind]) => kind), ["observe", "preview", "begin", "finish-sampling"]);
+  assert.deepEqual(log.at(-1), ["finish-sampling", "completed", 24]);
+});
+
+test("Pi compact barrier rejects unsafe source and replacement boundaries", () => {
+  assert.throws(
+    () => buildCompactBarrier({
+      ...SOURCE,
+      cells: [{ boundary: Number.MAX_SAFE_INTEGER, source_id: { thread: "session", epoch: 0, ordinal: 0 }, item: {} }],
+    }, 1),
+    /source boundary is exhausted/,
+  );
+  assert.throws(
+    () => buildCompactBarrier({
+      ...SOURCE,
+      cells: [{ boundary: Number.MAX_SAFE_INTEGER - 1, source_id: { thread: "session", epoch: 0, ordinal: 0 }, item: {} }],
+    }, 2),
+    /replacement boundary is exhausted/,
+  );
+});
+
+test("Pi lifecycle maps validated transition tools and finishes typed executions", async () => {
+  const { log, lifecycle } = harness();
+  await lifecycle.beginSampling({ input: [] });
+  assert.equal(await lifecycle.registerToolCall("call-1", "read", {}), false);
+  assert.equal(
+    await lifecycle.registerToolCall("call-2", "spine_next", {
+      goal: "next scope",
+      memory: "closed memory",
+    }),
+    true,
+  );
+  assert.equal(await lifecycle.finishToolCall("other", true), false);
+  assert.equal(await lifecycle.finishToolCall("call-2", true), true);
+  await lifecycle.finishTurn({
+    aborted: false,
+    message: { role: "assistant", content: [], stopReason: "toolUse", timestamp: 2 },
+  });
+
+  assert.deepEqual(log.find(([kind]) => kind === "stage"), [
+    "stage",
+    "call-2",
+    "call-2",
+    { type: "next", closed_memory: "closed memory", next_summary: "next scope" },
+  ]);
+});
+
+test("Pi lifecycle stages Spawn only after terminal results and abort wins terminal mapping", async () => {
+  const { log, lifecycle } = harness();
+  const tasks = [{ summary: "child", prompt: "do child work" }];
+  const results = [{ ordinal: 0, outcome: "completed", memory_body: "child memory" }];
+  await lifecycle.beginSampling({ input: [] });
+  await lifecycle.registerToolCall("spawn-1", "spine_spawn", { tasks });
+  assert.equal(log.some(([kind]) => kind === "stage"), false);
+  await lifecycle.stageSpawn("spawn-1", tasks, results);
+  await lifecycle.finishToolCall("spawn-1", true);
+  await lifecycle.finishTurn({
+    aborted: true,
+    message: { role: "assistant", content: [], stopReason: "stop", timestamp: 2 },
+  });
+  assert.deepEqual(log.at(-1), ["finish-sampling", "cancelled", undefined]);
+});
+
+test("Pi lifecycle faults closed on an unfinished transition", async () => {
+  const { lifecycle } = harness();
+  await lifecycle.beginSampling({ input: [] });
+  await lifecycle.registerToolCall("call", "spine_open", { goal: "scope" });
+  await assert.rejects(
+    lifecycle.finishTurn({
+      aborted: false,
+      message: { role: "assistant", content: [], stopReason: "stop", timestamp: 2 },
+    }),
+    PiSamplingLifecycleError,
+  );
+  await assert.rejects(lifecycle.previewContext(), PiSamplingLifecycleError);
+});
+
+test("Pi lifecycle rejects deferred assistant responses instead of inventing completion", async () => {
+  const { lifecycle } = harness();
+  await lifecycle.beginSampling({ input: [] });
+  await assert.rejects(
+    lifecycle.finishTurn({
+      aborted: false,
+      message: { role: "assistant", content: [], stopReason: "deferred", timestamp: 2 },
+    }),
+    (error) =>
+      error instanceof PiSamplingLifecycleError &&
+      /deferred assistant responses are unsupported/.test(String(error.cause)),
+  );
+  await assert.rejects(lifecycle.previewContext(), PiSamplingLifecycleError);
+});
+
+test("Pi tool and provider payload decoders are exact", () => {
+  assert.equal(
+    providerPayloadDigest({ a: 1 }),
+    "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862",
+  );
+  assert.deepEqual(operationFromPiToolCall("spine_close", { memory: "memory" }), {
+    type: "close",
+    memory: "memory",
+  });
+  assert.deepEqual(decodeSpawnTasks({ tasks: [{ summary: "s", prompt: "p" }] }), [
+    { summary: "s", prompt: "p" },
+  ]);
+  assert.throws(() => decodeSpawnTasks({ tasks: [{ summary: "", prompt: "p" }] }),
+    PiSamplingLifecycleError);
+});
