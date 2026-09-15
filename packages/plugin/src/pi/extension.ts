@@ -31,13 +31,13 @@ import {
   PI_SPINE_TOOL_NAMES,
 } from "./lifecycle.js";
 import { materializePiContext, type PiAgentMessage } from "./messages.js";
+import { rewriteSpineToolNamesForPi } from "./prompt.js";
 import { resolvePiInvocation } from "./invocation.js";
 import { buildPiReplayPlan, recoverPiSession } from "./recovery.js";
 
 const CHILD_FLAG = "spine-child";
 const CHILD_RETURN_TOOL = "spine_child_return";
 const SPINE_TREE_WIDGET = "spine-tree";
-const MAX_SPAWN_TASKS = 8;
 const EXTENSION_MODULE_PATH = fileURLToPath(import.meta.url);
 
 export interface PiExtensionRuntimeFactory {
@@ -96,78 +96,73 @@ export function createPiExtension(options: CreatePiExtensionOptions = {}): Exten
 export default createPiExtension();
 
 function registerSpineTools(pi: ExtensionAPI, slot: MutableSessionSlot): void {
-  pi.registerTool({
-    name: "spine_open",
-    label: "Spine Open",
-    description: "Open an inline Spine scope. The goal describes the new scope.",
-    parameters: Type.Object({ goal: Type.String({ minLength: 1 }) }),
-    async execute() {
-      return toolResult("Spine scope open staged");
-    },
-  });
-  pi.registerTool({
-    name: "spine_close",
-    label: "Spine Close",
-    description: "Close the active inline Spine scope with model-authored continuation memory.",
-    parameters: Type.Object({ memory: Type.String({ minLength: 1 }) }),
-    async execute() {
-      return toolResult("Spine scope close staged");
-    },
-  });
-  pi.registerTool({
-    name: "spine_next",
-    label: "Spine Next",
-    description: "Close the active scope with memory, then open a sibling scope with the goal.",
-    parameters: Type.Object({
-      goal: Type.String({ minLength: 1 }),
-      memory: Type.String({ minLength: 1 }),
-    }),
-    async execute() {
-      return toolResult("Spine sibling transition staged");
-    },
-  });
-  pi.registerTool({
-    name: "spine_spawn",
-    label: "Spine Spawn",
-    description: "Run an ordered batch of child tasks and import typed terminal memory.",
-    parameters: Type.Object({
-      tasks: Type.Array(
-        Type.Object({
-          summary: Type.String({ minLength: 1 }),
-          prompt: Type.String({ minLength: 1 }),
-        }),
-        { minItems: 1, maxItems: MAX_SPAWN_TASKS },
-      ),
-    }),
-    async execute(toolCallId, params, signal, _onUpdate, ctx) {
-      const session = await requireSession(slot);
-      const tasks = decodeSpawnTasks(params as unknown as Record<string, unknown>);
-      const staging = createPiSpawnStagingStore({
-        async claimOwnership() {},
-        async appendCustomEntry(type, entry) {
-          pi.appendEntry(type, entry);
-        },
-        async materializeContext() {
-          return [];
-        },
-        async replaceContext() {},
-      });
-      const results = await executeSpawnBatch({
-        batchId: toolCallId,
-        tasks,
-        ...(signal === undefined ? {} : { signal }),
-        staging,
-        executor: {
-          execute: (task, child) => executePiChild(pi, ctx, task.prompt, child),
+  for (const tool of loadCanonicalSpineTools()) {
+    if (tool.name === "spine_spawn") {
+      pi.registerTool({
+        name: tool.name,
+        label: tool.label,
+        description: tool.description,
+        parameters: tool.parameters,
+        async execute(toolCallId, params, signal, _onUpdate, ctx) {
+          const session = await requireSession(slot);
+          const tasks = decodeSpawnTasks(params as unknown as Record<string, unknown>);
+          const staging = createPiSpawnStagingStore({
+            async claimOwnership() {},
+            async appendCustomEntry(type, entry) {
+              pi.appendEntry(type, entry);
+            },
+            async materializeContext() {
+              return [];
+            },
+            async replaceContext() {},
+          });
+          const results = await executeSpawnBatch({
+            batchId: toolCallId,
+            tasks,
+            ...(signal === undefined ? {} : { signal }),
+            staging,
+            executor: {
+              execute: (task, child) => executePiChild(pi, ctx, task.prompt, child),
+            },
+          });
+          await session.lifecycle.stageSpawn(toolCallId, tasks, results);
+          return {
+            content: [{ type: "text", text: `Spine Spawn completed ${results.length} child tasks` }],
+            details: { batchId: toolCallId, results },
+          };
         },
       });
-      await session.lifecycle.stageSpawn(toolCallId, tasks, results);
-      return {
-        content: [{ type: "text", text: `Spine Spawn completed ${results.length} child tasks` }],
-        details: { batchId: toolCallId, results },
-      };
-    },
-  });
+      continue;
+    }
+    pi.registerTool({
+      name: tool.name,
+      label: tool.label,
+      description: tool.description,
+      parameters: tool.parameters,
+      async execute() {
+        return toolResult(`Spine ${tool.name} staged`);
+      },
+    });
+  }
+}
+
+function loadCanonicalSpineTools(): Array<{
+  name: string;
+  label: string;
+  description: string;
+  parameters: ReturnType<typeof Type.Unsafe>;
+}> {
+  const runtime = createNodeSpineRuntime({ thread: "pi-tool-catalog", features: ["jit", "spawn"] });
+  try {
+    return runtime.toolCatalog().map((tool) => ({
+      name: `spine_${tool.id}`,
+      label: `Spine ${tool.id[0]?.toUpperCase() ?? ""}${tool.id.slice(1)}`,
+      description: rewriteSpineToolNamesForPi(tool.description),
+      parameters: Type.Unsafe(tool.parameters),
+    }));
+  } finally {
+    runtime.dispose();
+  }
 }
 
 function registerChildReturnTool(pi: ExtensionAPI): void {
@@ -286,7 +281,9 @@ function registerLifecycleHandlers(
   pi.on("before_agent_start", async (event) => {
     if (childMode) return;
     const session = await requireSession(slot);
-    return { systemPrompt: session.runtime.extendSystemPrompt(event.systemPrompt) };
+    return {
+      systemPrompt: rewriteSpineToolNamesForPi(session.runtime.extendSystemPrompt(event.systemPrompt)),
+    };
   });
   pi.on("tool_call", async (event, ctx) => {
     if (childMode) return undefined;
@@ -476,7 +473,9 @@ async function initializeSession(
               pi.appendEntry(type, entry);
             },
             async materializeContext(context) {
-              return materializePiContext(context, bindings);
+              return materializePiContext(context, bindings, {
+                nodePrompt: rewriteSpineToolNamesForPi(runtime?.nodePrompt() ?? ""),
+              });
             },
             async replaceContext(context) {
               const installed = structuredClone(context);

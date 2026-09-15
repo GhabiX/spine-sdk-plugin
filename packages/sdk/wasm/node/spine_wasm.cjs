@@ -70,6 +70,42 @@ class SpineRuntime {
         SpineRuntimeFinalization.register(this, this.__wbg_ptr, this);
         return this;
     }
+    /**
+     * @returns {string}
+     */
+    node_prompt() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.spineruntime_node_prompt(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {string}
+     */
+    tool_catalog_json() {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ret = wasm.spineruntime_tool_catalog_json(this.__wbg_ptr);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
 }
 if (Symbol.dispose) SpineRuntime.prototype[Symbol.dispose] = SpineRuntime.prototype.free;
 exports.SpineRuntime = SpineRuntime;

@@ -44,6 +44,9 @@ export function decodeSpineSpawnTasks(input: Record<string, unknown>): SpawnTask
   if (!Array.isArray(input.tasks)) {
     throw new SpineToolInputError("spine_spawn requires a tasks array");
   }
+  if (input.tasks.length < 2) {
+    throw new SpineToolInputError("spine_spawn requires at least two tasks");
+  }
   return input.tasks.map((task, ordinal) => {
     if (task === null || typeof task !== "object" || Array.isArray(task)) {
       throw new SpineToolInputError(`spine_spawn task ${ordinal} is not an object`);

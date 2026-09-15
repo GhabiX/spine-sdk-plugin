@@ -97,9 +97,11 @@ test("Pi renders only the canonical Spine-owned projection forms", () => {
     projection: { nodes: [], cursor: [0], visible_context: [], last_boundary: 0 },
   };
 
-  const messages = materializePiContext(context, bindings);
+  const messages = materializePiContext(context, bindings, {
+    nodePrompt: "KEEP subsequent work inside this branch.",
+  });
   assert.equal(messages[0].content,
-    '<spine_node id="0.1" summary="child &lt;scope&gt;" status="opened">\n</spine_node>');
+    '<spine_node id="0.1" summary="child &lt;scope&gt;" status="opened">\nKEEP subsequent work inside this branch.\n</spine_node>');
   assert.equal(messages[1].content,
     '<spine_memory node_id="0.2">\nmemory\n</spine_memory>');
   assert.match(messages[2].content, /^<spine_spawn_evidence node_id="0">/);

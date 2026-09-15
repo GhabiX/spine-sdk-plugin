@@ -133,9 +133,14 @@ export class PiSourceBindings {
   }
 }
 
+export interface PiContextMaterializationOptions {
+  nodePrompt?: string;
+}
+
 export function materializePiContext(
   context: PublishedContext,
   bindings: PiSourceBindings,
+  options: PiContextMaterializationOptions = {},
 ): PiAgentMessage[] {
   const plan = context.contextPlan;
   if (plan === null) {
@@ -152,19 +157,23 @@ export function materializePiContext(
       messages.push(message);
       continue;
     }
-    messages.push(materializeProjection(cell));
+    messages.push(materializeProjection(cell, options.nodePrompt ?? ""));
   }
   return messages;
 }
 
 function materializeProjection(
   cell: Extract<ContextPlanCell, { type: "projection" }>,
+  nodePrompt: string,
 ): PiAgentMessage {
   const item = cell.item;
   if ("SyntheticNode" in item) {
     const { node_id: nodeId, summary, status } = item.SyntheticNode;
+    const live = status === "Live" || status === "Opened";
+    const prompt = live ? nodePrompt.trim() : "";
+    const inner = prompt.length > 0 ? `\n${prompt}\n` : "\n";
     return userMessage(
-      `<spine_node id="${nodeId.join(".")}" summary="${escapeXmlAttribute(summary)}" status="${status.toLowerCase()}">\n</spine_node>`,
+      `<spine_node id="${nodeId.join(".")}" summary="${escapeXmlAttribute(summary)}" status="${status.toLowerCase()}">${inner}</spine_node>`,
     );
   }
   if ("MemorySlot" in item) {

@@ -391,6 +391,22 @@ fn incremental_replay_matches_one_shot_replay() {
 }
 
 #[test]
+fn tool_catalog_matches_spine_core_names_and_spawn_arity() {
+    let runtime = runtime();
+    let catalog: Value = serde_json::from_str(&runtime.tool_catalog_json().expect("catalog"))
+        .expect("json");
+    let ids: Vec<&str> = catalog
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|tool| tool["id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(ids, ["open", "close", "next", "spawn"]);
+    let spawn = catalog.as_array().unwrap().iter().find(|tool| tool["id"] == "spawn").unwrap();
+    assert_eq!(spawn["parameters"]["properties"]["tasks"]["minItems"], 2);
+}
+
+#[test]
 fn json_dispatch_rejects_requests_over_four_mib() {
     let mut runtime = runtime();
     let oversized = "x".repeat(4 * 1024 * 1024 + 1);

@@ -52,4 +52,14 @@ impl WasmSpineRuntime {
     pub fn extend_system_prompt(&self, base: &str) -> String {
         self.inner.extend_system_prompt(base)
     }
+
+    pub fn node_prompt(&self) -> String {
+        self.inner.node_prompt()
+    }
+
+    pub fn tool_catalog_json(&self) -> Result<String, JsValue> {
+        self.inner
+            .tool_catalog_json()
+            .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
 }

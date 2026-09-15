@@ -11,6 +11,8 @@ import { SpineRuntimeClient, type RuntimeTransport } from "./runtime.js";
 interface WasmSpineRuntime {
   dispatch(requestJson: string): string;
   extend_system_prompt(base: string): string;
+  node_prompt(): string;
+  tool_catalog_json(): string;
   free(): void;
 }
 
@@ -30,9 +32,17 @@ export interface NodeSpineRuntimeOptions {
   features?: FeatureFlag[];
 }
 
+export interface SpineToolSpec {
+  id: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
 export interface NodeSpineRuntime {
   client: SpineRuntimeClient;
   extendSystemPrompt(base: string): string;
+  nodePrompt(): string;
+  toolCatalog(): SpineToolSpec[];
   dispose(): void;
 }
 
@@ -62,6 +72,18 @@ export function createNodeSpineRuntime(options: NodeSpineRuntimeOptions): NodeSp
         throw new Error("Spine Node runtime is disposed");
       }
       return native.extend_system_prompt(base);
+    },
+    nodePrompt() {
+      if (disposed) {
+        throw new Error("Spine Node runtime is disposed");
+      }
+      return native.node_prompt();
+    },
+    toolCatalog() {
+      if (disposed) {
+        throw new Error("Spine Node runtime is disposed");
+      }
+      return JSON.parse(native.tool_catalog_json()) as SpineToolSpec[];
     },
     dispose() {
       if (!disposed) {

@@ -127,6 +127,12 @@ function gatedRuntimeFactory() {
         extendSystemPrompt(base) {
           return runtime.extendSystemPrompt(base);
         },
+        nodePrompt() {
+          return runtime.nodePrompt();
+        },
+        toolCatalog() {
+          return runtime.toolCatalog();
+        },
         get disposed() {
           return disposed;
         },
@@ -193,10 +199,13 @@ test("before_agent_start installs the canonical Spine instruction", async () => 
     features: ["jit", "spawn"],
   });
   try {
+    const { rewriteSpineToolNamesForPi } = await import("../dist/pi/prompt.js");
     assert.equal(
       result.systemPrompt,
-      expectedRuntime.extendSystemPrompt("base system prompt"),
+      rewriteSpineToolNamesForPi(expectedRuntime.extendSystemPrompt("base system prompt")),
     );
+    assert.match(result.systemPrompt, /spine_open/);
+    assert.doesNotMatch(result.systemPrompt, /spine\.open/);
   } finally {
     expectedRuntime.dispose();
   }
@@ -302,13 +311,13 @@ test("Spawn child invocation isolates the extension and preserves the prompt arg
       type: "tool_call",
       toolCallId: "spawn-1",
       toolName: "spine_spawn",
-      input: { tasks: [{ summary: "child", prompt: "do exact work" }] },
+      input: { tasks: [{ summary: "child", prompt: "do exact work" }, { summary: "peer", prompt: "do peer work" }] },
     },
     ctx.context,
   );
   const result = await pi.tools.get("spine_spawn").execute(
     "spawn-1",
-    { tasks: [{ summary: "child", prompt: "do exact work" }] },
+    { tasks: [{ summary: "child", prompt: "do exact work" }, { summary: "peer", prompt: "do peer work" }] },
     undefined,
     undefined,
     ctx.context,
@@ -330,7 +339,7 @@ test("Spawn child invocation isolates the extension and preserves the prompt arg
   assert.equal(childArgs[childArgs.indexOf("--model") + 1], "gemini-3.8-flash");
   assert.ok(childArgs.includes("--thinking"));
   assert.equal(childArgs[childArgs.indexOf("--thinking") + 1], "low");
-  assert.match(childArgs.at(-1), /^do exact work\n\nBefore ending/);
+  assert.match(childArgs.at(-1), /^do peer work\n\nBefore ending/);
   assert.equal(result.details.results[0].memory_body, "typed child memory");
   assert.equal(pi.entries.at(-1).customType, "spine.spawn-terminal.v1");
 });
@@ -367,13 +376,13 @@ test("Spawn records typed nonzero child memory but rejects an untyped crash", as
       type: "tool_call",
       toolCallId: "spawn-typed-failure",
       toolName: "spine_spawn",
-      input: { tasks: [{ summary: "child", prompt: "fail after return" }] },
+      input: { tasks: [{ summary: "child", prompt: "fail after return" }, { summary: "peer", prompt: "peer fallback" }] },
     },
     typedCtx.context,
   );
   const typedResult = await typed.tools.get("spine_spawn").execute(
     "spawn-typed-failure",
-    { tasks: [{ summary: "child", prompt: "fail after return" }] },
+    { tasks: [{ summary: "child", prompt: "fail after return" }, { summary: "peer", prompt: "peer fallback" }] },
     undefined,
     undefined,
     typedCtx.context,
@@ -412,14 +421,14 @@ test("Spawn records typed nonzero child memory but rejects an untyped crash", as
       type: "tool_call",
       toolCallId: "spawn-untyped-failure",
       toolName: "spine_spawn",
-      input: { tasks: [{ summary: "child", prompt: "crash" }] },
+      input: { tasks: [{ summary: "child", prompt: "crash" }, { summary: "peer", prompt: "peer crash" }] },
     },
     untypedCtx.context,
   );
   await assert.rejects(
     untyped.tools.get("spine_spawn").execute(
       "spawn-untyped-failure",
-      { tasks: [{ summary: "child", prompt: "crash" }] },
+      { tasks: [{ summary: "child", prompt: "crash" }, { summary: "peer", prompt: "peer crash" }] },
       undefined,
       undefined,
       untypedCtx.context,

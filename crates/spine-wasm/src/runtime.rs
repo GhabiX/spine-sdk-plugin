@@ -8,6 +8,7 @@ use crate::dto::PortableSourceSnapshot;
 use crate::dto::SOURCE_SNAPSHOT_SCHEMA;
 use crate::dto::Terminal;
 use serde::Serialize;
+use serde_json::Value;
 use spine_core::host::CanonicalReplay;
 use spine_core::host::CanonicalReplayBuilder;
 use spine_core::host::ContextEpoch;
@@ -31,6 +32,13 @@ pub struct PortableRuntime {
     config: SpineConfig,
     runtime: SamplingRuntime,
     state: TransactionState,
+}
+
+#[derive(Serialize)]
+struct PortableToolSpec {
+    id: &'static str,
+    description: String,
+    parameters: Value,
 }
 
 enum TransactionState {
@@ -213,6 +221,25 @@ impl PortableRuntime {
 
     pub fn extend_system_prompt(&self, base: &str) -> String {
         self.config.extend_system_prompt(base)
+    }
+
+    pub fn node_prompt(&self) -> String {
+        self.config.node_prompt().unwrap_or("").to_string()
+    }
+
+    pub fn tool_catalog_json(&self) -> Result<String, BindingError> {
+        let catalog =
+            spine_core::host::ToolCatalog::new(&self.config).map_err(BindingError::input)?;
+        let tools: Vec<PortableToolSpec> = catalog
+            .definitions()
+            .iter()
+            .map(|definition| PortableToolSpec {
+                id: definition.tool.name(),
+                description: definition.description.clone(),
+                parameters: definition.parameters.clone(),
+            })
+            .collect();
+        serde_json::to_string(&tools).map_err(BindingError::json)
     }
 
     fn prepare_finish(

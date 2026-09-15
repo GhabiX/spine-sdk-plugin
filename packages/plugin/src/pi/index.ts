@@ -10,6 +10,7 @@ import {
 } from "../index.js";
 
 export * from "./messages.js";
+export * from "./prompt.js";
 export * from "./lifecycle.js";
 export * from "./protocol.js";
 export * from "./recovery.js";

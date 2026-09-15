@@ -20,4 +20,6 @@ export class SpineRuntime {
      */
     extend_system_prompt(base: string): string;
     constructor(init_json: string);
+    node_prompt(): string;
+    tool_catalog_json(): string;
 }
