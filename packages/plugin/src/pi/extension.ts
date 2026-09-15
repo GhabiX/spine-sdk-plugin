@@ -512,6 +512,21 @@ async function initializeSession(
   }
 }
 
+function childRuntimeFlags(ctx: ExtensionContext): string[] {
+  const flags: string[] = [];
+  const model = ctx.model;
+  if (model !== undefined) {
+    flags.push("--provider", model.provider, "--model", model.id);
+  }
+  if (ctx.thinkingLevel !== undefined) {
+    flags.push("--thinking", ctx.thinkingLevel);
+  }
+  if (process.argv.includes("--approve")) {
+    flags.push("--approve");
+  }
+  return flags;
+}
+
 async function executePiChild(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
@@ -536,11 +551,21 @@ async function executePiChild(
       "--extension",
       EXTENSION_MODULE_PATH,
       `--${CHILD_FLAG}=true`,
+      ...childRuntimeFlags(ctx),
       task,
     ],
     { cwd: ctx.cwd, signal: child.signal },
   );
-  const memory = extractTypedChildMemory(result.stdout);
+  let memory: string;
+  try {
+    memory = extractTypedChildMemory(result.stdout);
+  } catch (cause) {
+    const diagnostic = result.stderr.trim() || `Pi child exited with code ${result.code}`;
+    throw new Error(
+      `${cause instanceof Error ? cause.message : String(cause)}; ${diagnostic}`.slice(0, 1200),
+      { cause },
+    );
+  }
   const diagnostic = result.stderr.trim() || `Pi child exited with code ${result.code}`;
   if (result.killed) {
     return {

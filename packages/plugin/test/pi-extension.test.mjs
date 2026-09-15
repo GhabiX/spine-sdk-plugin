@@ -33,6 +33,9 @@ function mockPi() {
       registerCommand(name, command) {
         commands.set(name, command);
       },
+      getThinkingLevel() {
+        return "low";
+      },
       setActiveTools(names) {
         this.activeTools = [...names];
       },
@@ -73,6 +76,8 @@ function extensionContext(sessionId = "pi-session") {
       hasUI: true,
       signal: undefined,
       cwd: "/tmp",
+      model: { provider: "google", id: "gemini-3.8-flash" },
+      thinkingLevel: "low",
       sessionManager: {
         getSessionId: () => sessionId,
         getBranch: () => [],
@@ -319,6 +324,12 @@ test("Spawn child invocation isolates the extension and preserves the prompt arg
   assert.ok(childArgs.includes("--no-extensions"));
   assert.ok(childArgs.includes("--extension"));
   assert.ok(childArgs.includes("--spine-child=true"));
+  assert.ok(childArgs.includes("--provider"));
+  assert.equal(childArgs[childArgs.indexOf("--provider") + 1], "google");
+  assert.ok(childArgs.includes("--model"));
+  assert.equal(childArgs[childArgs.indexOf("--model") + 1], "gemini-3.8-flash");
+  assert.ok(childArgs.includes("--thinking"));
+  assert.equal(childArgs[childArgs.indexOf("--thinking") + 1], "low");
   assert.match(childArgs.at(-1), /^do exact work\n\nBefore ending/);
   assert.equal(result.details.results[0].memory_body, "typed child memory");
   assert.equal(pi.entries.at(-1).customType, "spine.spawn-terminal.v1");

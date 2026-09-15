@@ -143,19 +143,29 @@ test("live tsx execArgv plus script reconstructs the parent image", () => {
   });
 });
 
-test("PI cli.ts --help fails without execArgv and succeeds with tsx loaders", () => {
+test("PI cli.ts --help from a foreign cwd needs execArgv; TSX_TSCONFIG_PATH is inherited", () => {
   assert.equal(existsSync(cli), true);
+  const env = { ...process.env, TSX_TSCONFIG_PATH: join(piRoot, "tsconfig.json") };
   const broken = spawnSync(process.execPath, [cli, "--help"], {
     encoding: "utf8",
-    cwd: piRoot,
+    cwd: here,
+    env,
   });
   assert.notEqual(broken.status, 0);
   const loader = pathToFileURL(loaderFile).href;
-  const fixed = spawnSync(
-    process.execPath,
-    ["--require", preflight, "--import", loader, cli, "--help"],
-    { encoding: "utf8", cwd: piRoot },
+  const invocation = resolvePiInvocation(
+    {
+      execPath: process.execPath,
+      execArgv: ["--require", preflight, "--import", loader],
+      argv: [process.execPath, cli],
+    },
+    existsSync,
   );
+  const fixed = spawnSync(invocation.command, [...invocation.args, "--help"], {
+    encoding: "utf8",
+    cwd: here,
+    env,
+  });
   assert.equal(fixed.status, 0, fixed.stderr);
   assert.match(fixed.stdout, /Usage|usage|Commands|Options/i);
 });

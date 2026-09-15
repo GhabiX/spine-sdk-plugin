@@ -14,7 +14,7 @@ export interface PiInvocation {
 
 /**
  * Reconstruct the running Node/Bun image so a Spawn child can load TypeScript
- * the same way the parent did. Copy execArgv (tsx loaders, strip-types, …);
+ * the same way the parent did. Copy execArgv (tsx loaders, strip-types, ...);
  * drop only inspector flags so a debug parent does not bind the same port.
  */
 export function resolvePiInvocation(
