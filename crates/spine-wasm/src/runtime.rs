@@ -9,6 +9,7 @@ use crate::dto::SOURCE_SNAPSHOT_SCHEMA;
 use crate::dto::Terminal;
 use serde::Serialize;
 use spine_core::host::CanonicalReplay;
+use spine_core::host::CanonicalReplayBuilder;
 use spine_core::host::ContextEpoch;
 use spine_core::host::Feature;
 use spine_core::host::PreparedSamplingCommit;
@@ -39,6 +40,7 @@ enum TransactionState {
         transaction_id: String,
         commit: Box<PreparedSamplingCommit>,
     },
+    Replaying(Box<CanonicalReplayBuilder>),
     Faulted,
 }
 
@@ -180,6 +182,9 @@ impl PortableRuntime {
                 })
             }
             Command::Replay { inputs } => self.replay(inputs),
+            Command::ReplayBegin => self.replay_begin(),
+            Command::ReplayApply { inputs } => self.replay_apply(inputs),
+            Command::ReplayFinish => self.replay_finish(),
         }
     }
 
@@ -318,17 +323,52 @@ impl PortableRuntime {
         &mut self,
         inputs: Vec<crate::dto::ReplayItem>,
     ) -> Result<CommandResult, BindingError> {
+        self.replay_begin()?;
+        self.replay_apply(inputs)?;
+        self.replay_finish()
+    }
+
+    fn replay_begin(&mut self) -> Result<CommandResult, BindingError> {
         self.require_idle()?;
-        let replay = CanonicalReplay::new(self.thread.clone())
+        let builder = CanonicalReplay::new(self.thread.clone())
             .map_err(BindingError::core)?
             .with_runtime_config(self.config.clone())
             .map_err(BindingError::core)?
-            .prepare(inputs.into_iter().map(|value| value.into_core()))
+            .builder()
             .map_err(BindingError::core)?;
+        self.state = TransactionState::Replaying(Box::new(builder));
+        Ok(CommandResult::ReplayBegun)
+    }
+
+    fn replay_apply(
+        &mut self,
+        inputs: Vec<crate::dto::ReplayItem>,
+    ) -> Result<CommandResult, BindingError> {
+        let TransactionState::Replaying(builder) = &mut self.state else {
+            return Err(BindingError::state("no replay transaction is active"));
+        };
+        if let Err(error) = builder.apply(inputs.into_iter().map(|value| value.into_core())) {
+            self.state = TransactionState::Faulted;
+            return Err(BindingError::core(error));
+        }
+        Ok(CommandResult::ReplayApplied)
+    }
+
+    fn replay_finish(&mut self) -> Result<CommandResult, BindingError> {
+        let state = std::mem::replace(&mut self.state, TransactionState::Faulted);
+        let TransactionState::Replaying(builder) = state else {
+            self.state = state;
+            return Err(BindingError::state("no replay transaction is active"));
+        };
+        let replay = match builder.finish() {
+            Ok(replay) => replay,
+            Err(error) => return Err(BindingError::core(error)),
+        };
         let context_plan = replay.live_plan.clone();
         let projection = replay.projection.clone();
         let applied_commits = replay.applied_commits.clone();
         self.runtime = replay.into_runtime();
+        self.state = TransactionState::Idle;
         Ok(CommandResult::ReplayInstalled {
             context_plan,
             projection,
@@ -349,6 +389,9 @@ impl PortableRuntime {
             )),
             TransactionState::Prepared { .. } => Err(BindingError::state(
                 "a prepared transaction is awaiting persistence",
+            )),
+            TransactionState::Replaying(_) => Err(BindingError::state(
+                "a replay transaction is already active",
             )),
             TransactionState::Faulted => Err(BindingError::state("runtime is faulted")),
         }

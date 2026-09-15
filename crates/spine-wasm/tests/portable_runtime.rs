@@ -270,6 +270,137 @@ fn canonical_replay_installs_the_prepared_projection() {
 }
 
 #[test]
+fn incremental_replay_matches_one_shot_replay() {
+    let mut live = runtime();
+    let user = user(1);
+    let assistant = assistant(2);
+    live.execute(Command::ObserveSources {
+        characters: vec![user.clone()],
+    })
+    .expect("observe user");
+    let started = match live
+        .execute(Command::BeginSampling {
+            prompt_digest: RecordDigest::digest(b"prompt").as_str().to_string(),
+        })
+        .expect("begin")
+    {
+        CommandResult::SamplingStarted { record } => *record,
+        other => panic!("unexpected result: {other:?}"),
+    };
+    live.execute(Command::ObserveSources {
+        characters: vec![assistant.clone()],
+    })
+    .expect("observe assistant");
+    live.execute(Command::RegisterExecution {
+        key: "exec".to_string(),
+    })
+    .expect("register");
+    live.execute(Command::StageExecution {
+        key: "exec".to_string(),
+        execution_ref: "exec".to_string(),
+        operation: Operation::Open {
+            summary: "open".to_string(),
+        },
+    })
+    .expect("stage");
+    live.execute(Command::FinishExecution {
+        key: "exec".to_string(),
+        succeeded: true,
+    })
+    .expect("finish exec");
+    let (transaction_id, committed, expected_plan, expected_projection) = match live
+        .execute(Command::PrepareFinish {
+            terminal: Terminal::Completed,
+            input_tokens: Some(17),
+        })
+        .expect("prepare")
+    {
+        CommandResult::FinishPrepared {
+            transaction_id,
+            record,
+            context_plan,
+            projection,
+        } => (transaction_id, *record, context_plan, projection),
+        other => panic!("unexpected result: {other:?}"),
+    };
+    live.execute(Command::InstallPrepared { transaction_id })
+        .expect("install");
+
+    let inputs = vec![
+        ReplayItem::Source {
+            character: user.clone(),
+        },
+        ReplayItem::Archive {
+            record: Box::new(started.clone()),
+        },
+        ReplayItem::Source {
+            character: assistant.clone(),
+        },
+        ReplayItem::Archive {
+            record: Box::new(committed.clone()),
+        },
+    ];
+    let mut one_shot = runtime();
+    let one_shot_result = one_shot
+        .execute(Command::Replay {
+            inputs: inputs.clone(),
+        })
+        .expect("one-shot replay");
+
+    let mut incremental = runtime();
+    incremental
+        .execute(Command::ReplayBegin)
+        .expect("replay begin");
+    incremental
+        .execute(Command::ReplayApply {
+            inputs: inputs[..2].to_vec(),
+        })
+        .expect("replay apply prefix");
+    incremental
+        .execute(Command::ReplayApply {
+            inputs: inputs[2..].to_vec(),
+        })
+        .expect("replay apply suffix");
+    let incremental_result = incremental
+        .execute(Command::ReplayFinish)
+        .expect("replay finish");
+
+    match (one_shot_result, incremental_result) {
+        (
+            CommandResult::ReplayInstalled {
+                context_plan: one_plan,
+                projection: one_projection,
+                applied_commits: one_commits,
+                ..
+            },
+            CommandResult::ReplayInstalled {
+                context_plan: split_plan,
+                projection: split_projection,
+                applied_commits: split_commits,
+                ..
+            },
+        ) => {
+            assert_eq!(one_plan, Some(expected_plan));
+            assert_eq!(one_projection, expected_projection);
+            assert_eq!(split_plan, one_plan);
+            assert_eq!(split_projection, one_projection);
+            assert_eq!(split_commits, one_commits);
+        }
+        other => panic!("unexpected result: {other:?}"),
+    }
+}
+
+#[test]
+fn json_dispatch_rejects_requests_over_four_mib() {
+    let mut runtime = runtime();
+    let oversized = "x".repeat(4 * 1024 * 1024 + 1);
+    let envelope = runtime.dispatch_json(&oversized);
+    let value: Value = serde_json::from_str(&envelope).expect("json");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["error"]["code"], "request_too_large");
+}
+
+#[test]
 fn feature_off_does_not_enable_sampling_implicitly() {
     let mut runtime = PortableRuntime::new(InitRequest {
         schema: ABI_SCHEMA.to_string(),

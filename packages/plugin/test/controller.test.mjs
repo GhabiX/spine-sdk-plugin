@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createSpineController,
+  packReplayApplyBatches,
   SpineController,
   SpineControllerError,
 } from "../dist/index.js";
@@ -95,7 +96,11 @@ function runtimeWith(log, overrides = {}) {
           return { type: "prepared_discarded", transaction_id: command.transaction_id };
         case "preview":
           return { type: "preview", context_plan: PLAN, projection: PROJECTION };
-        case "replay":
+        case "replay_begin":
+          return { type: "replay_begun" };
+        case "replay_apply":
+          return { type: "replay_applied" };
+        case "replay_finish":
           return {
             type: "replay_installed",
             context_plan: PLAN,
@@ -288,7 +293,39 @@ test("replay installs through the runtime and publishes without persisting", asy
   const controller = new SpineController(runtimeWith(log), host.archive, host.context);
 
   await controller.replay([]);
-  assert.deepEqual(log, ["runtime:replay", "publish:null"]);
+  assert.deepEqual(log, ["runtime:replay_begin", "runtime:replay_finish", "publish:null"]);
+});
+
+test("replay apply packing splits oversized batches", () => {
+  const bulky = {
+    type: "source",
+    character: { type: "message", boundary: 1, role: "user", content: "x".repeat(700_000) },
+  };
+  const second = {
+    type: "source",
+    character: { type: "message", boundary: 2, role: "user", content: "x".repeat(700_000) },
+  };
+  const batches = packReplayApplyBatches([bulky, second]);
+  assert.equal(batches.length, 2);
+  assert.equal(batches[0].length, 1);
+  assert.equal(batches[1].length, 1);
+});
+
+test("replay with packed inputs issues begin, apply, finish", async () => {
+  const log = [];
+  const host = ports(log);
+  const controller = new SpineController(runtimeWith(log), host.archive, host.context);
+  const item = {
+    type: "source",
+    character: { type: "opaque", boundary: 1 },
+  };
+  await controller.replay([item]);
+  assert.deepEqual(log, [
+    "runtime:replay_begin",
+    "runtime:replay_apply",
+    "runtime:replay_finish",
+    "publish:null",
+  ]);
 });
 
 test("replay installs exact source bindings before publication and preview is serialized", async () => {
@@ -303,7 +340,8 @@ test("replay installs exact source bindings before publication and preview is se
   const preview = await controller.previewAndPublish();
   assert.equal(preview.contextPlan, PLAN);
   assert.deepEqual(log, [
-    "runtime:replay",
+    "runtime:replay_begin",
+    "runtime:replay_finish",
     "restore:thread-1",
     "publish:null",
     "runtime:preview",
@@ -322,7 +360,7 @@ test("replay source binding failure fault-latches before publication", async () 
     }),
     (error) => error instanceof SpineControllerError && error.fault.stage === "restore",
   );
-  assert.deepEqual(log, ["runtime:replay"]);
+  assert.deepEqual(log, ["runtime:replay_begin", "runtime:replay_finish"]);
   await assert.rejects(controller.preview(), SpineControllerError);
 });
 

@@ -12,6 +12,9 @@ import type {
   SourceSnapshot,
   Terminal,
 } from "@spinejit/spine-sdk";
+import { encodeCommand } from "@spinejit/spine-sdk";
+
+const REPLAY_APPLY_PACK_BUDGET_BYTES = 1024 * 1024;
 
 export interface DurableArchiveEntry {
   durabilityId: string;
@@ -312,7 +315,14 @@ export class SpineController {
   }
 
   async #replayResult(inputs: ReplayItem[]) {
-    return expectResult(await this.#executeRuntime({ type: "replay", inputs }), "replay_installed");
+    expectResult(await this.#executeRuntime({ type: "replay_begin" }), "replay_begun");
+    for (const batch of packReplayApplyBatches(inputs)) {
+      expectResult(
+        await this.#executeRuntime({ type: "replay_apply", inputs: batch }),
+        "replay_applied",
+      );
+    }
+    return expectResult(await this.#executeRuntime({ type: "replay_finish" }), "replay_installed");
   }
 
   async #publishReplay(
@@ -415,6 +425,33 @@ export class SpineController {
 
 function archiveRecordDigest(record: SamplingArchiveRecord): string {
   return record.record.record_digest;
+}
+
+export function packReplayApplyBatches(inputs: readonly ReplayItem[]): ReplayItem[][] {
+  const emptyBytes = replayApplyBytes([]);
+  const batches: ReplayItem[][] = [];
+  let current: ReplayItem[] = [];
+  let currentBytes = emptyBytes;
+  for (const item of inputs) {
+    const itemBytes = Buffer.byteLength(JSON.stringify(item), "utf8");
+    const extra = current.length === 0 ? itemBytes - 2 : itemBytes + 1;
+    if (current.length > 0 && currentBytes + extra > REPLAY_APPLY_PACK_BUDGET_BYTES) {
+      batches.push(current);
+      current = [item];
+      currentBytes = emptyBytes + itemBytes - 2;
+      continue;
+    }
+    current.push(item);
+    currentBytes += extra;
+  }
+  if (current.length > 0) {
+    batches.push(current);
+  }
+  return batches;
+}
+
+function replayApplyBytes(inputs: readonly ReplayItem[]): number {
+  return Buffer.byteLength(encodeCommand({ type: "replay_apply", inputs: [...inputs] }), "utf8");
 }
 
 function expectResult<T extends CommandResult["type"]>(

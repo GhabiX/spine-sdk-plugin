@@ -24,6 +24,13 @@ commit record before calling `install`. A failed persistence discards
 the unpersisted candidate. Replay installs the same canonical state without
 replaying live-only host effects.
 
+Cold-start recover must not copy the whole host log in one ABI request.
+`replay_begin` / `replay_apply` / `replay_finish` drive `CanonicalReplay`
+incrementally; each JSON request stays under `MAX_ABI_REQUEST_BYTES` (4 MiB).
+`replay { inputs }` remains sugar for begin + one apply + finish when the
+payload already fits. `replay_apply` failures latch the runtime Faulted and
+do not publish.
+
 `compact` is idle-only. The host persists the typed barrier before issuing the
 runtime command. The command advances the context epoch and returns the
 replacement source plan; the host binds those core-assigned source identities

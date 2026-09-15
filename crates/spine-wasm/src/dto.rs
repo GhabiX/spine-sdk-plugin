@@ -91,6 +91,11 @@ pub enum Command {
     Replay {
         inputs: Vec<ReplayItem>,
     },
+    ReplayBegin,
+    ReplayApply {
+        inputs: Vec<ReplayItem>,
+    },
+    ReplayFinish,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -224,6 +229,8 @@ pub enum CommandResult {
     NamespaceContinued {
         source: PortableSourceSnapshot,
     },
+    ReplayBegun,
+    ReplayApplied,
     ReplayInstalled {
         context_plan: Option<ContextPlanRecipe>,
         projection: SpineProjection,

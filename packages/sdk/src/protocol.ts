@@ -267,7 +267,10 @@ export type Command =
   | { type: "preview" }
   | { type: "source_snapshot" }
   | { type: "continue_namespace"; thread: ThreadNamespace }
-  | { type: "replay"; inputs: ReplayItem[] };
+  | { type: "replay"; inputs: ReplayItem[] }
+  | { type: "replay_begin" }
+  | { type: "replay_apply"; inputs: ReplayItem[] }
+  | { type: "replay_finish" };
 
 export interface CommandRequest {
   schema: SpineSdkSchema;
@@ -307,6 +310,8 @@ export type CommandResult =
     }
   | { type: "source_snapshot"; source: SourceSnapshot }
   | { type: "namespace_continued"; source: SourceSnapshot }
+  | { type: "replay_begun" }
+  | { type: "replay_applied" }
   | {
       type: "replay_installed";
       context_plan: ContextPlanRecipe | null;
@@ -338,6 +343,8 @@ const RESULT_TYPES = new Set<CommandResult["type"]>([
   "preview",
   "source_snapshot",
   "namespace_continued",
+  "replay_begun",
+  "replay_applied",
   "replay_installed",
 ]);
 
