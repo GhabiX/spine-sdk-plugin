@@ -20,7 +20,6 @@ fn runtime() -> PortableRuntime {
         epoch: 0,
         config_toml: None,
         features: vec![FeatureFlag::Jit, FeatureFlag::Spawn],
-        source_digest_version: None,
     })
     .expect("runtime")
 }
@@ -425,7 +424,6 @@ fn feature_off_does_not_enable_sampling_implicitly() {
         epoch: 0,
         config_toml: None,
         features: Vec::new(),
-        source_digest_version: None,
     })
     .expect("feature-off runtime");
     let error = runtime

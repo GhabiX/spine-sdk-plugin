@@ -32,15 +32,6 @@ pub struct InitRequest {
     pub config_toml: Option<String>,
     #[serde(default)]
     pub features: Vec<FeatureFlag>,
-    #[serde(default)]
-    pub source_digest_version: Option<SourceDigestVersionFlag>,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SourceDigestVersionFlag {
-    V1,
-    V2,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]

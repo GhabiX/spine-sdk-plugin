@@ -30,7 +30,6 @@ export interface NodeSpineRuntimeOptions {
   epoch?: SafeInteger;
   configToml?: string | null;
   features?: FeatureFlag[];
-  sourceDigestVersion?: "v1" | "v2";
 }
 
 export interface SpineToolSpec {
@@ -55,9 +54,6 @@ export function createNodeSpineRuntime(options: NodeSpineRuntimeOptions): NodeSp
       ...(options.epoch === undefined ? {} : { epoch: options.epoch }),
       ...(options.configToml === undefined ? {} : { config_toml: options.configToml }),
       ...(options.features === undefined ? {} : { features: options.features }),
-      ...(options.sourceDigestVersion === undefined
-        ? {}
-        : { source_digest_version: options.sourceDigestVersion }),
     }),
   );
   let disposed = false;

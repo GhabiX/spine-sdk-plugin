@@ -69,8 +69,7 @@ interface MutableSessionSlot {
 /** Creates a real Pi 0.84 extension factory backed by the packaged Node/WASM SDK. */
 export function createPiExtension(options: CreatePiExtensionOptions = {}): ExtensionFactory {
   const runtimeFactory = options.runtimeFactory ?? {
-    create: (thread: string) =>
-      createNodeSpineRuntime({ thread, features: ["jit", "spawn"], sourceDigestVersion: "v2" }),
+    create: (thread: string) => createNodeSpineRuntime({ thread, features: ["jit", "spawn"] }),
   };
 
   return (pi) => {
