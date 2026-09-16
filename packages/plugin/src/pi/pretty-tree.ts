@@ -63,6 +63,14 @@ export function formatPrettySpineTreeFromNodes(activeNodeId: string, nodes: read
   return renderPrettyLines(activeNodeId, nodes).map(plainPrettyLine);
 }
 
+export function formatThemedPrettySpineTreeFromNodes(
+  activeNodeId: string,
+  nodes: readonly DisplayNode[],
+  theme: SpineTheme,
+): string[] {
+  return renderPrettyLines(activeNodeId, nodes).map((line) => themePrettyLine(line, theme));
+}
+
 export function formatThemedPrettySpineTree(
   projection: SpineProjection,
   theme: SpineTheme,
@@ -364,7 +372,8 @@ function themePrettyLine(line: PrettyLine, theme: SpineTheme): string {
       return `${theme.fg("dim", "  └ ")}${theme.fg("dim", "(empty)")}`;
     case "history": {
       const noun = historyNoun(line.count);
-      return `${theme.fg("dim", line.prefix)}${theme.fg("dim", "◌ ")}${theme.fg("success", String(line.count))}${theme.fg("success", " earlier ")}${theme.fg("success", noun)}`;
+      const label = `${line.count} earlier ${noun}`;
+      return `${theme.fg("dim", line.prefix)}${theme.fg("dim", "◌ ")}${theme.fg("dim", label)}`;
     }
     case "node":
       return `${theme.fg("dim", line.prefix)}${themeMarker(line.marker, theme)} ${line.label}`;

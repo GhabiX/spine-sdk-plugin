@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatPrettySpineTreeFromNodes } from "../dist/pi/pretty-tree.js";
+import {
+  formatPrettySpineTreeFromNodes,
+  formatThemedPrettySpineTreeFromNodes,
+} from "../dist/pi/pretty-tree.js";
 
 function node(nodeId, parentId, summary, status, kind = "Task", spawnOutcome = null) {
   return { nodeId, parentId, kind, status, summary, spawnOutcome };
@@ -165,4 +168,28 @@ test("pretty tree marks spawn outcomes instead of generic closed status", () => 
 test("root-epoch-only snapshots render the empty pretty tree", () => {
   const lines = formatPrettySpineTreeFromNodes("1", [rootEpoch("1", "root", "Live")]);
   assert.equal(lines.join("\n"), ["• Spine Tree", "  └ (empty)"].join("\n"));
+});
+
+test("themed pretty tree keeps history dim and current node on accent", () => {
+  const theme = {
+    fg(color, text) {
+      return `[${color}]${text}`;
+    },
+    bold(text) {
+      return text;
+    },
+  };
+  const lines = formatThemedPrettySpineTreeFromNodes(
+    "2.1",
+    [
+      node("1", null, "earlier work", "Closed"),
+      node("2", null, "current scope", "Opened"),
+      node("2.1", "2", "focused task", "Live"),
+    ],
+    theme,
+  );
+  assert.match(lines[0], /\[accent\]Spine Tree/);
+  assert.match(lines[1], /\[dim\]1 earlier branch/);
+  assert.equal(lines[1].includes("[success]"), false);
+  assert.match(lines[3], /\[accent\]◉/);
 });

@@ -186,6 +186,21 @@ test("default export is a loadable Pi extension with the canonical tools", () =>
     [...pi.tools.keys()].sort(),
     ["spine_close", "spine_next", "spine_open", "spine_spawn"],
   );
+  for (const name of ["spine_open", "spine_close", "spine_next"]) {
+    const tool = pi.tools.get(name);
+    assert.equal(tool.renderShell, "self");
+    assert.deepEqual(tool.renderCall({}, {}, {}).render(80), []);
+    assert.deepEqual(
+      tool.renderResult(
+        { content: [{ type: "text", text: `Spine ${name} staged` }], details: { staged: true } },
+        { expanded: false, isPartial: false },
+        { fg(_c, t) { return t; }, bold(t) { return t; } },
+        { isError: false },
+      ).render(80),
+      [],
+    );
+  }
+  assert.equal(typeof pi.tools.get("spine_spawn").renderCall, "function");
   assert.deepEqual([...pi.commands.keys()].sort(), ["spine-tree"]);
   assert.ok(pi.handlers.has("context"));
   assert.ok(pi.handlers.has("before_agent_start"));

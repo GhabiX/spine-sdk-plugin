@@ -197,8 +197,20 @@ function registerSpineTools(pi: ExtensionAPI, slot: MutableSessionSlot): void {
       label: tool.label,
       description: tool.description,
       parameters: tool.parameters,
+      renderShell: "self",
       async execute() {
         return toolResult(`Spine ${tool.name} staged`);
+      },
+      renderCall() {
+        return linesComponent([]);
+      },
+      renderResult(result, _options, theme, context) {
+        if (context.isError) {
+          const text = result.content[0];
+          const message = text?.type === "text" ? text.text : `${tool.name} failed`;
+          return linesComponent([theme.fg("error", message)]);
+        }
+        return linesComponent([]);
       },
     });
   }
