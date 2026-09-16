@@ -1,6 +1,6 @@
 import type { SpawnResult, SpawnTask } from "@spinejit/spine-sdk";
 
-import { linesComponent, type SpineTheme } from "./pretty-tree.js";
+import { linesComponent, spineBrand, type SpineTheme } from "./pretty-tree.js";
 
 const ACTIVITY_WORDS = [
   "Germinating",
@@ -127,7 +127,7 @@ function spawnPlainTaskLine(task: SpawnTaskView, isLast: boolean): string {
 function themeSpawnTaskLine(task: SpawnTaskView, isLast: boolean, theme: SpineTheme): string {
   const branch = theme.fg("dim", isLast ? "  └ " : "  ├ ");
   const marker = themeMarker(statusMarker(task.status), theme);
-  const word = theme.fg("success", task.activityWord);
+  const word = spineBrand(task.activityWord, theme);
   return `${branch}${marker} ${word} ${task.summary}`;
 }
 
@@ -163,9 +163,8 @@ function themeMarker(marker: string, theme: SpineTheme): string {
   switch (marker) {
     case "◐":
     case "◉":
-      return theme.fg("success", theme.bold(marker));
     case "✓":
-      return theme.fg("success", theme.bold(marker));
+      return spineBrand(marker, theme);
     case "×":
       return theme.fg("error", theme.bold(marker));
     case "!":

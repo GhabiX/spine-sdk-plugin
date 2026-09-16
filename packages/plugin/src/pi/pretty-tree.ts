@@ -23,6 +23,13 @@ export interface SpineTheme {
   bold(text: string): string;
 }
 
+const SPINE_BRAND = "\x1b[92m";
+const SPINE_BRAND_RESET = "\x1b[39m";
+
+export function spineBrand(text: string, theme: SpineTheme): string {
+  return `${SPINE_BRAND}${theme.bold(text)}${SPINE_BRAND_RESET}`;
+}
+
 type SiblingItem = { type: "history"; count: number } | { type: "node"; node: DisplayNode };
 
 export function formatNodeId(id: readonly number[]): string {
@@ -369,7 +376,7 @@ function plainPrettyLine(line: PrettyLine): string {
 function themePrettyLine(line: PrettyLine, theme: SpineTheme): string {
   switch (line.type) {
     case "header":
-      return `${theme.fg("dim", "• ")}${theme.fg("success", theme.bold("Spine Tree"))}`;
+      return `${theme.fg("dim", "• ")}${spineBrand("Spine Tree", theme)}`;
     case "empty":
       return `${theme.fg("dim", "  └ ")}${theme.fg("dim", "(empty)")}`;
     case "history": {
@@ -385,9 +392,8 @@ function themePrettyLine(line: PrettyLine, theme: SpineTheme): string {
 function themeMarker(marker: string, theme: SpineTheme): string {
   switch (marker) {
     case "◉":
-      return theme.fg("success", theme.bold(marker));
     case "✓":
-      return theme.fg("success", theme.bold(marker));
+      return spineBrand(marker, theme);
     case "×":
       return theme.fg("error", theme.bold(marker));
     case "!":

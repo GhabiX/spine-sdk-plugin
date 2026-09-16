@@ -62,8 +62,12 @@ test("spawn renderers keep the SpineCodex marker language", () => {
 
   const collapsed = renderSpawnResult(view, false, theme).render(80);
   assert.equal(collapsed.some((line) => line.includes("Spine Spawn")), false);
-  assert.match(collapsed[0], /✓ Germinating inspect auth/);
-  assert.match(collapsed[1], /◐ Budding inspect models/);
+  assert.match(collapsed[0], /✓/);
+  assert.match(collapsed[0], /Germinating/);
+  assert.match(collapsed[0], /inspect auth/);
+  assert.match(collapsed[1], /◐/);
+  assert.match(collapsed[1], /Budding/);
+  assert.match(collapsed[1], /inspect models/);
   assert.equal(collapsed.some((line) => line.includes("auth memory")), false);
 
   const expanded = renderSpawnResult(view, true, theme).render(80);

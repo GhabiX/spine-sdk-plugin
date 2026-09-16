@@ -188,9 +188,9 @@ test("themed pretty tree keeps history dim and current node on success", () => {
     ],
     theme,
   );
-  assert.match(lines[0], /\[success\]Spine Tree/);
+  assert.match(lines[0], /\x1b\[92mSpine Tree\x1b\[39m/);
   assert.match(lines[1], /\[dim\]1 earlier branch/);
   assert.equal(lines[1].includes("[success]"), false);
   assert.match(lines[2], /\[dim\]▾/);
-  assert.match(lines[3], /\[success\]◉/);
+  assert.match(lines[3], /\x1b\[92m◉\x1b\[39m/);
 });

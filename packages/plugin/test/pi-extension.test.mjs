@@ -538,8 +538,9 @@ test("WASM-backed extension completes one Pi Open sampling transaction", async (
   assert.equal(widget[0], "spine-tree");
   assert.deepEqual(widget[2], { placement: "aboveEditor" });
   const tree = widgetLines(widget).join("\n");
-  assert.match(tree, /• Spine Tree/);
-  assert.match(tree, /◉ inspect/);
+  assert.match(tree, /Spine Tree/);
+  assert.match(tree, /◉/);
+  assert.match(tree, /inspect/);
   assert.equal(tree.includes("1.1"), false);
 
   assert.deepEqual(pi.entries.map((entry) => entry.customType), [
