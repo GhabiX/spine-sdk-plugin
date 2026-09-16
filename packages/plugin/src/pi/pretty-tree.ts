@@ -1,5 +1,7 @@
 import type { NodeSnapshot, SpineProjection } from "@spinejit/spine-sdk";
 
+import { clampLines } from "./tui-width.js";
+
 const PRETTY_MAX_VISIBLE_SIBLINGS = 3;
 const PRETTY_ACTIVE_PARENT_DEPTH = 3;
 
@@ -82,7 +84,7 @@ export function formatThemedPrettySpineTree(
 
 export function linesComponent(lines: readonly string[]): { render: (width: number) => string[]; invalidate: () => void } {
   return {
-    render: () => [...lines],
+    render: (width) => clampLines(lines, width),
     invalidate() {},
   };
 }
