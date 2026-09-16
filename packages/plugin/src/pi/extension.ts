@@ -46,7 +46,7 @@ import {
   markSpawnTask,
   renderSpawnCall,
   renderSpawnResult,
-  spawnFallbackText,
+  spawnModelText,
   type SpawnBatchDetails,
 } from "./spawn-view.js";
 
@@ -172,7 +172,7 @@ function registerSpineTools(pi: ExtensionAPI, slot: MutableSessionSlot): void {
           await session.lifecycle.stageSpawn(toolCallId, tasks, results);
           for (const result of results) applySpawnTerminal(view, result.ordinal, result);
           return {
-            content: [{ type: "text", text: spawnFallbackText(view) }],
+            content: [{ type: "text", text: spawnModelText(view) }],
             details: { ...snapshotSpawnView(view), batchId: toolCallId, results },
           };
         },
@@ -745,10 +745,8 @@ function renderSpineTree(ctx: ExtensionContext, slot: MutableSessionSlot, sessio
   if (ctx.mode !== "tui") return;
   const projection = session.latestContext.projection;
   if (!prettySpineTreeHasTasks(projection)) {
-    if (slot.treeSignature !== null) {
-      slot.treeSignature = null;
-      ctx.ui.setWidget(SPINE_TREE_WIDGET, undefined);
-    }
+    slot.treeSignature = null;
+    ctx.ui.setWidget(SPINE_TREE_WIDGET, undefined);
     return;
   }
   const signature = displayTreeSignature(projection);
@@ -763,7 +761,7 @@ function renderSpineTree(ctx: ExtensionContext, slot: MutableSessionSlot, sessio
 
 function spawnToolUpdate(view: SpawnBatchDetails) {
   return {
-    content: [{ type: "text" as const, text: spawnFallbackText(view) }],
+    content: [{ type: "text" as const, text: spawnModelText(view) }],
     details: snapshotSpawnView(view),
   };
 }

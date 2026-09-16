@@ -30,7 +30,7 @@ test("spawn view assigns Codex activity words and live/settled markers", () => {
     ["Germinating", "Budding", "Sprouting"],
   );
   assert.equal(view.tasks.every((task) => task.status === "running"), true);
-  assert.match(spawnFallbackText(view), /◐ Germinating {2}inspect auth/);
+  assert.match(spawnFallbackText(view), /  ├ ◐ Germinating inspect auth/);
 
   applySpawnTerminal(view, 1, {
     ordinal: 1,
@@ -39,10 +39,12 @@ test("spawn view assigns Codex activity words and live/settled markers", () => {
   });
   markSpawnTask(view, 2, "errored", "child failed");
   const text = spawnFallbackText(view);
-  assert.match(text, /├ ◐ Germinating {2}inspect auth/);
-  assert.match(text, /├ ✓ Budding {2}inspect models/);
-  assert.match(text, /└ × Sprouting {2}inspect providers/);
+  assert.match(text, /├ ◐ Germinating inspect auth/);
+  assert.match(text, /├ ✓ Budding inspect models/);
+  assert.match(text, /└ × Sprouting inspect providers/);
   assert.equal(text.includes("⏳"), false);
+  assert.equal(text.includes("Spine Spawn"), false);
+  assert.equal(text.includes("settled"), false);
 });
 
 test("spawn renderers keep the SpineCodex marker language", () => {
@@ -59,10 +61,9 @@ test("spawn renderers keep the SpineCodex marker language", () => {
   assert.deepEqual(header, ["spine_spawn  2 tasks"]);
 
   const collapsed = renderSpawnResult(view, false, theme).render(80);
-  assert.equal(collapsed[0].includes("Spine Spawn"), true);
-  assert.equal(collapsed[0].includes("1/2 settled, 1 live"), true);
-  assert.match(collapsed[1], /✓ Germinating {2}inspect auth/);
-  assert.match(collapsed[2], /◐ Budding {2}inspect models/);
+  assert.equal(collapsed.some((line) => line.includes("Spine Spawn")), false);
+  assert.match(collapsed[0], /✓ Germinating inspect auth/);
+  assert.match(collapsed[1], /◐ Budding inspect models/);
   assert.equal(collapsed.some((line) => line.includes("auth memory")), false);
 
   const expanded = renderSpawnResult(view, true, theme).render(80);

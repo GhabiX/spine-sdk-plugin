@@ -89,8 +89,17 @@ export function markSpawnTask(view: SpawnBatchDetails, ordinal: number, status: 
   task.diagnostic = diagnostic;
 }
 
+export function spawnModelText(view: SpawnBatchDetails): string {
+  const running = view.tasks.filter((task) => task.status === "running").length;
+  const settled = view.tasks.length - running;
+  if (running > 0) return `Spine Spawn ${settled}/${view.tasks.length} completed`;
+  const failed = view.tasks.filter((task) => task.status === "errored" || task.status === "aborted").length;
+  if (failed > 0) return `Spine Spawn ${view.tasks.length - failed}/${view.tasks.length} completed`;
+  return `Spine Spawn completed ${view.tasks.length} child tasks`;
+}
+
 export function spawnFallbackText(view: SpawnBatchDetails): string {
-  return ["Spine Spawn", ...view.tasks.map((task, index) => spawnPlainTaskLine(task, index + 1 === view.tasks.length))].join("\n");
+  return view.tasks.map((task, index) => spawnPlainTaskLine(task, index + 1 === view.tasks.length)).join("\n");
 }
 
 export function renderSpawnCall(taskCount: number, theme: SpineTheme) {
@@ -99,41 +108,27 @@ export function renderSpawnCall(taskCount: number, theme: SpineTheme) {
 }
 
 export function renderSpawnResult(view: SpawnBatchDetails, expanded: boolean, theme: SpineTheme) {
-  const lines = [spawnHeaderLine(view, theme)];
+  const lines: string[] = [];
   view.tasks.forEach((task, index) => {
     const isLast = index + 1 === view.tasks.length;
     lines.push(themeSpawnTaskLine(task, isLast, theme));
     if (!expanded) return;
     for (const detail of spawnTaskDetails(task)) {
-      lines.push(`${theme.fg("dim", isLast ? "      " : "│     ")}${theme.fg("dim", detail)}`);
+      lines.push(`${theme.fg("dim", isLast ? "      " : "  │   ")}${theme.fg("dim", detail)}`);
     }
   });
   return linesComponent(lines);
 }
 
-function spawnHeaderLine(view: SpawnBatchDetails, theme: SpineTheme): string {
-  const running = view.tasks.filter((task) => task.status === "running").length;
-  const failed = view.tasks.filter((task) => task.status === "errored" || task.status === "aborted").length;
-  const settled = view.tasks.length - running;
-  const marker = running > 0 ? "◐" : failed > 0 ? (failed === view.tasks.length ? "×" : "!") : "✓";
-  const status =
-    running > 0
-      ? `${settled}/${view.tasks.length} settled, ${running} live`
-      : failed > 0
-        ? `${view.tasks.length - failed}/${view.tasks.length} completed`
-        : `${view.tasks.length} completed`;
-  return `${themeMarker(marker, theme)} ${theme.fg("toolTitle", theme.bold("Spine Spawn"))}  ${theme.fg("dim", status)}`;
-}
-
 function spawnPlainTaskLine(task: SpawnTaskView, isLast: boolean): string {
-  return `  ${isLast ? "└ " : "├ "}${statusMarker(task.status)} ${task.activityWord}  ${task.summary}`;
+  return `  ${isLast ? "└ " : "├ "}${statusMarker(task.status)} ${task.activityWord} ${task.summary}`;
 }
 
 function themeSpawnTaskLine(task: SpawnTaskView, isLast: boolean, theme: SpineTheme): string {
   const branch = theme.fg("dim", isLast ? "  └ " : "  ├ ");
   const marker = themeMarker(statusMarker(task.status), theme);
   const word = theme.fg("accent", task.activityWord);
-  return `${branch}${marker} ${word}  ${task.summary}`;
+  return `${branch}${marker} ${word} ${task.summary}`;
 }
 
 function spawnTaskDetails(task: SpawnTaskView): string[] {
