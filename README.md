@@ -32,16 +32,17 @@ state.
 
 `@spinejit/spine-plugin` declares its loadable entry in `pi.extensions`; the
 same entry is available explicitly as `@spinejit/spine-plugin/pi/extension`.
-It registers the four canonical tools, `/spine-status`, and `/spine-tree`, and
+It registers the four canonical tools and `/spine-tree`, and
 uses `@spinejit/spine-sdk/node` for the packaged WASM runtime.
 Before each agent run, the extension's `before_agent_start` hook extends Pi's
 assembled system prompt through the runtime's configured `SpineConfig`. This
 keeps the canonical Spine instruction in `spine-core`; the Pi adapter does not
 copy prompt text or rely on tool descriptions as a substitute for it.
-In interactive Pi TUI mode it also renders the current projection as a small
-`aboveEditor` widget keyed by `spine-tree`; the widget is refreshed after
-session recovery, committed turns, compaction, and context preparation. JSON,
-print, and RPC modes keep the existing command/notification behavior.
+In interactive Pi TUI mode it renders a folded SpineCodex-style pretty tree as an
+`aboveEditor` widget keyed by `spine-tree`, refreshed only when the display
+signature changes. `/spine-tree` prints that same pretty tree. `spine_spawn`
+streams per-child status on the tool row. JSON, print, and RPC modes keep the
+command/notification behavior.
 
 The Pi deployment profile must load Spine as the final and exclusive context
 reducer and the exclusive compaction owner. The extension intercepts

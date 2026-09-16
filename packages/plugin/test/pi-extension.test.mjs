@@ -147,6 +147,21 @@ function gatedRuntimeFactory() {
   };
 }
 
+function widgetLines(widget, width = 80) {
+  const content = widget[1];
+  if (content === undefined) return [];
+  if (Array.isArray(content)) return content;
+  const theme = {
+    fg(_color, text) {
+      return text;
+    },
+    bold(text) {
+      return text;
+    },
+  };
+  return content(null, theme).render(width);
+}
+
 function user(content) {
   return { role: "user", content, timestamp: 1 };
 }
@@ -171,7 +186,7 @@ test("default export is a loadable Pi extension with the canonical tools", () =>
     [...pi.tools.keys()].sort(),
     ["spine_close", "spine_next", "spine_open", "spine_spawn"],
   );
-  assert.deepEqual([...pi.commands.keys()].sort(), ["spine-status", "spine-tree"]);
+  assert.deepEqual([...pi.commands.keys()].sort(), ["spine-tree"]);
   assert.ok(pi.handlers.has("context"));
   assert.ok(pi.handlers.has("before_agent_start"));
   assert.ok(pi.handlers.has("session_before_compact"));
@@ -507,7 +522,10 @@ test("WASM-backed extension completes one Pi Open sampling transaction", async (
   const widget = ctx.widgets.at(-1);
   assert.equal(widget[0], "spine-tree");
   assert.deepEqual(widget[2], { placement: "aboveEditor" });
-  assert.match(widget[1].join("\n"), /1\.1 inspect current/);
+  const tree = widgetLines(widget).join("\n");
+  assert.match(tree, /• Spine Tree/);
+  assert.match(tree, /◉ inspect/);
+  assert.equal(tree.includes("1.1"), false);
 
   assert.deepEqual(pi.entries.map((entry) => entry.customType), [
     "spine.archive.v1",

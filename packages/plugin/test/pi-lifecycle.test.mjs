@@ -164,9 +164,18 @@ test("Pi tool and provider payload decoders are exact", () => {
     type: "close",
     memory: "memory",
   });
-  assert.deepEqual(decodeSpawnTasks({ tasks: [{ summary: "s", prompt: "p" }] }), [
-    { summary: "s", prompt: "p" },
-  ]);
+  assert.deepEqual(
+    decodeSpawnTasks({
+      tasks: [
+        { summary: "s", prompt: "p" },
+        { summary: "t", prompt: "q" },
+      ],
+    }),
+    [
+      { summary: "s", prompt: "p" },
+      { summary: "t", prompt: "q" },
+    ],
+  );
   assert.throws(() => decodeSpawnTasks({ tasks: [{ summary: "", prompt: "p" }] }),
     PiSamplingLifecycleError);
 });

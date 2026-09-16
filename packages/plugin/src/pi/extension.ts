@@ -17,7 +17,6 @@ import {
   createNodeSpineRuntime,
   type NodeSpineRuntime,
 } from "@spinejit/spine-sdk/node";
-import type { SpineProjection } from "@spinejit/spine-sdk";
 import type { FinishSamplingResult } from "../controller.js";
 import { Type } from "typebox";
 
@@ -33,7 +32,23 @@ import {
 import { materializePiContext, type PiAgentMessage } from "./messages.js";
 import { rewriteSpineToolNamesForPi } from "./prompt.js";
 import { resolvePiInvocation } from "./invocation.js";
+import {
+  displayTreeSignature,
+  formatPrettySpineTree,
+  formatThemedPrettySpineTree,
+  linesComponent,
+  prettySpineTreeHasTasks,
+} from "./pretty-tree.js";
 import { buildPiReplayPlan, recoverPiSession } from "./recovery.js";
+import {
+  applySpawnTerminal,
+  createSpawnBatchView,
+  markSpawnTask,
+  renderSpawnCall,
+  renderSpawnResult,
+  spawnFallbackText,
+  type SpawnBatchDetails,
+} from "./spawn-view.js";
 
 const CHILD_FLAG = "spine-child";
 const CHILD_RETURN_TOOL = "spine_child_return";
@@ -64,6 +79,7 @@ interface MutableSessionSlot {
   notified: boolean;
   compactionHandled: boolean;
   compactionAbortCleanup: (() => void) | null;
+  treeSignature: string | null;
 }
 
 /** Creates a real Pi 0.84 extension factory backed by the packaged Node/WASM SDK. */
@@ -86,6 +102,7 @@ export function createPiExtension(options: CreatePiExtensionOptions = {}): Exten
       notified: false,
       compactionHandled: false,
       compactionAbortCleanup: null,
+      treeSignature: null,
     };
     registerSpineTools(pi, slot);
     registerSpineCommands(pi, slot);
@@ -103,9 +120,14 @@ function registerSpineTools(pi: ExtensionAPI, slot: MutableSessionSlot): void {
         label: tool.label,
         description: tool.description,
         parameters: tool.parameters,
-        async execute(toolCallId, params, signal, _onUpdate, ctx) {
+        async execute(toolCallId, params, signal, onUpdate, ctx) {
           const session = await requireSession(slot);
           const tasks = decodeSpawnTasks(params as unknown as Record<string, unknown>);
+          const view = createSpawnBatchView(tasks);
+          const publish = () => {
+            onUpdate?.(spawnToolUpdate(view));
+          };
+          publish();
           const staging = createPiSpawnStagingStore({
             async claimOwnership() {},
             async appendCustomEntry(type, entry) {
@@ -122,14 +144,50 @@ function registerSpineTools(pi: ExtensionAPI, slot: MutableSessionSlot): void {
             ...(signal === undefined ? {} : { signal }),
             staging,
             executor: {
-              execute: (task, child) => executePiChild(pi, ctx, task.prompt, child),
+              async execute(task, child) {
+                try {
+                  const terminal = await executePiChild(pi, ctx, task.prompt, child);
+                  applySpawnTerminal(view, child.ordinal, {
+                    ordinal: child.ordinal,
+                    outcome: terminal.outcome,
+                    memory_body: terminal.memoryBody,
+                    ...(terminal.diagnostic === undefined ? {} : { diagnostic: terminal.diagnostic }),
+                    ...(terminal.executionRef === undefined ? {} : { execution_ref: terminal.executionRef }),
+                  });
+                  publish();
+                  return terminal;
+                } catch (cause) {
+                  markSpawnTask(
+                    view,
+                    child.ordinal,
+                    child.signal.aborted ? "aborted" : "errored",
+                    spawnFailureDiagnostic(cause),
+                  );
+                  publish();
+                  throw cause;
+                }
+              },
             },
           });
           await session.lifecycle.stageSpawn(toolCallId, tasks, results);
+          for (const result of results) applySpawnTerminal(view, result.ordinal, result);
           return {
-            content: [{ type: "text", text: `Spine Spawn completed ${results.length} child tasks` }],
-            details: { batchId: toolCallId, results },
+            content: [{ type: "text", text: spawnFallbackText(view) }],
+            details: { ...snapshotSpawnView(view), batchId: toolCallId, results },
           };
+        },
+        renderCall(args, theme) {
+          const record = isRecord(args) ? args : {};
+          const tasks = Array.isArray(record.tasks) ? record.tasks : [];
+          return renderSpawnCall(tasks.length, theme);
+        },
+        renderResult(result, { expanded }, theme) {
+          const details = spawnViewFromResult(result.details);
+          if (details === null) {
+            const text = result.content[0];
+            return linesComponent([text?.type === "text" ? text.text : "Spine Spawn"]);
+          }
+          return renderSpawnResult(details, expanded, theme);
         },
       });
       continue;
@@ -182,22 +240,12 @@ function registerChildReturnTool(pi: ExtensionAPI): void {
 }
 
 function registerSpineCommands(pi: ExtensionAPI, slot: MutableSessionSlot): void {
-  pi.registerCommand("spine-status", {
-    description: "Show Spine runtime status",
+  pi.registerCommand("spine-tree", {
+    description: "Show the current Spine tree",
     handler: async (_args, ctx) => {
       const session = await requireSession(slot);
       const projection = session.latestContext.projection;
-      ctx.ui.notify(
-        `Spine ready; cursor ${formatNodeId(projection.cursor)}; ${projection.nodes.length} nodes`,
-        "info",
-      );
-    },
-  });
-  pi.registerCommand("spine-tree", {
-    description: "Show the logical Spine scope tree",
-    handler: async (_args, ctx) => {
-      const session = await requireSession(slot);
-      const lines = formatSpineTree(session.latestContext.projection);
+      const lines = prettySpineTreeHasTasks(projection) ? formatPrettySpineTree(projection) : [];
       ctx.ui.notify(lines.length === 0 ? "Spine tree is empty" : lines.join("\n"), "info");
     },
   });
@@ -224,8 +272,9 @@ function registerLifecycleHandlers(
       slot.compactionHandled = false;
       slot.compactionAbortCleanup?.();
       slot.compactionAbortCleanup = null;
+      slot.treeSignature = null;
       await beginSessionInitialization(slot, () => initializeSession(pi, ctx, runtimeFactory, onSessionReady));
-      renderSpineTree(ctx, await requireSession(slot));
+      renderSpineTree(ctx, slot, await requireSession(slot));
     });
   });
   pi.on("session_tree", async (_event, ctx) => {
@@ -236,8 +285,9 @@ function registerLifecycleHandlers(
       slot.compactionHandled = false;
       slot.compactionAbortCleanup?.();
       slot.compactionAbortCleanup = null;
+      slot.treeSignature = null;
       await beginSessionInitialization(slot, () => initializeSession(pi, ctx, runtimeFactory, onSessionReady));
-      renderSpineTree(ctx, await requireSession(slot));
+      renderSpineTree(ctx, slot, await requireSession(slot));
     });
   });
   pi.on("session_shutdown", (_event, ctx) => {
@@ -246,6 +296,7 @@ function registerLifecycleHandlers(
     slot.compactionHandled = false;
     slot.compactionAbortCleanup?.();
     slot.compactionAbortCleanup = null;
+    slot.treeSignature = null;
     disposeCurrent(slot);
     slot.initialization = null;
     if (ctx.mode === "tui") {
@@ -263,7 +314,7 @@ function registerLifecycleHandlers(
     try {
       const session = await requireSession(slot);
       await session.lifecycle.previewContext();
-      renderSpineTree(ctx, session);
+      renderSpineTree(ctx, slot, session);
       return {
         messages: structuredClone(session.latestContext.messages) as unknown as ContextEvent["messages"],
       };
@@ -316,7 +367,7 @@ function registerLifecycleHandlers(
         aborted: ctx.signal?.aborted === true,
       });
       await onSamplingCommit?.({ sessionId: ctx.sessionManager.getSessionId(), commit, entries: ctx.sessionManager.getBranch() });
-      renderSpineTree(ctx, await requireSession(slot));
+      renderSpineTree(ctx, slot, await requireSession(slot));
     });
   });
   pi.on(
@@ -342,7 +393,7 @@ function registerLifecycleHandlers(
       const source = await session.lifecycle.sourceSnapshot();
       const barrier = buildCompactBarrier(source, replacementMessages.length);
       await session.lifecycle.compact(barrier, replacementMessages);
-      renderSpineTree(ctx, session);
+      renderSpineTree(ctx, slot, session);
       slot.compactionHandled = true;
       const onAbort = () => {
         if (!slot.compactionHandled) return;
@@ -690,66 +741,51 @@ function piInvocation(): { command: string; args: string[] } {
   });
 }
 
-function formatNodeId(id: readonly number[]): string {
-  return id.length === 0 ? "root" : id.join(".");
-}
-
-function formatSpineTree(projection: SpineProjection): string[] {
-  const current = formatNodeId(projection.cursor);
-  const children = new Map<string, SpineProjection["nodes"]>();
-  for (const node of projection.nodes) {
-    const parent = node.parent === null ? "" : formatNodeId(node.parent);
-    const siblings = children.get(parent);
-    if (siblings === undefined) children.set(parent, [node]);
-    else siblings.push(node);
-  }
-
-  const lines = [`Spine Tree  current ${current}`];
-  const roots = children.get("") ?? [];
-  if (roots.length === 0) {
-    lines.push("  └ (empty)");
-    return lines;
-  }
-  roots.forEach((node, index) =>
-    appendSpineTreeNode(lines, children, node, current, "  ", index === roots.length - 1),
-  );
-  return lines;
-}
-
-function appendSpineTreeNode(
-  lines: string[],
-  children: Map<string, SpineProjection["nodes"]>,
-  node: SpineProjection["nodes"][number],
-  current: string,
-  prefix: string,
-  isLast: boolean,
-): void {
-  const id = formatNodeId(node.id);
-  const active = id === current;
-  const status = active || node.status === "Live"
-    ? "current"
-    : node.status === "Opened"
-      ? "open"
-      : node.status === "Closed"
-        ? "done"
-        : node.status.toLowerCase();
-  const summary = node.summary?.trim();
-  lines.push(`${prefix}${isLast ? "└ " : "├ "}${id}${summary === undefined || summary === "" ? "" : ` ${summary}`} ${status}`);
-  const descendants = children.get(id) ?? [];
-  const childPrefix = `${prefix}${isLast ? "  " : "│ "}`;
-  descendants.forEach((child, index) =>
-    appendSpineTreeNode(lines, children, child, current, childPrefix, index === descendants.length - 1),
-  );
-}
-
-function renderSpineTree(ctx: ExtensionContext, session: ActivePiSession): void {
+function renderSpineTree(ctx: ExtensionContext, slot: MutableSessionSlot, session: ActivePiSession): void {
   if (ctx.mode !== "tui") return;
-  const lines = formatSpineTree(session.latestContext.projection);
+  const projection = session.latestContext.projection;
+  if (!prettySpineTreeHasTasks(projection)) {
+    if (slot.treeSignature !== null) {
+      slot.treeSignature = null;
+      ctx.ui.setWidget(SPINE_TREE_WIDGET, undefined);
+    }
+    return;
+  }
+  const signature = displayTreeSignature(projection);
+  if (signature === slot.treeSignature) return;
+  slot.treeSignature = signature;
   ctx.ui.setWidget(
     SPINE_TREE_WIDGET,
-    lines.length === 0 ? ["Spine tree: empty"] : lines,
+    (_tui, theme) => linesComponent(formatThemedPrettySpineTree(projection, theme)),
     { placement: "aboveEditor" },
   );
+}
+
+function spawnToolUpdate(view: SpawnBatchDetails) {
+  return {
+    content: [{ type: "text" as const, text: spawnFallbackText(view) }],
+    details: snapshotSpawnView(view),
+  };
+}
+
+function snapshotSpawnView(view: SpawnBatchDetails): SpawnBatchDetails {
+  return {
+    schema: "spine.spawn.view.v1",
+    tasks: view.tasks.map((task) => ({ ...task })),
+  };
+}
+
+function spawnViewFromResult(details: unknown): SpawnBatchDetails | null {
+  if (!isRecord(details) || details.schema !== "spine.spawn.view.v1" || !Array.isArray(details.tasks)) {
+    return null;
+  }
+  return details as unknown as SpawnBatchDetails;
+}
+
+function spawnFailureDiagnostic(cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim() !== "") return cause.message.slice(0, 240);
+  const text = String(cause).trim();
+  return text === "" ? "spawn child failed" : text.slice(0, 240);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
