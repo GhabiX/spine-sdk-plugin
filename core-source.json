@@ -3,7 +3,7 @@
   "package": "spine-core",
   "version": "0.5.0",
   "repository": "https://github.com/GhabiX/SpineCodex.git",
-  "revision": "b2db1100da72019169fb69849a31b7f74c3784ed",
+  "revision": "4cdee3c51f50f06a84034f833ec8d3f1740da6b3",
   "subdirectory": "codex-rs/spine-core",
   "developmentPath": "../codex-home/codex/codex-rs/spine-core"
 }

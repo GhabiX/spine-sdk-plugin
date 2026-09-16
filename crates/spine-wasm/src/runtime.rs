@@ -85,10 +85,19 @@ impl PortableRuntime {
             crate::dto::FeatureFlag::Spawn => Feature::Spawn,
         }))
         .map_err(BindingError::input)?;
-        let runtime = SamplingRuntime::new(
+        let digest_version = match init.source_digest_version {
+            None | Some(crate::dto::SourceDigestVersionFlag::V1) => {
+                spine_core::host::SourceDigestVersion::V1
+            }
+            Some(crate::dto::SourceDigestVersionFlag::V2) => {
+                spine_core::host::SourceDigestVersion::V2
+            }
+        };
+        let runtime = SamplingRuntime::new_with_source_digest_version(
             thread.clone(),
             ContextEpoch::new(init.epoch),
             config.clone(),
+            digest_version,
         )
         .map_err(BindingError::core)?;
         Ok(Self {

@@ -14,9 +14,11 @@ export interface InitRequest {
   epoch?: SafeInteger;
   config_toml?: string | null;
   features?: FeatureFlag[];
+  source_digest_version?: SourceDigestVersion;
 }
 
 export type FeatureFlag = "jit" | "spawn";
+export type SourceDigestVersion = "v1" | "v2";
 export type Terminal = "completed" | "failed" | "cancelled";
 export type SourceRole =
   | "user"
