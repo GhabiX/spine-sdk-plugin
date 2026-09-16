@@ -170,7 +170,7 @@ test("root-epoch-only snapshots render the empty pretty tree", () => {
   assert.equal(lines.join("\n"), ["• Spine Tree", "  └ (empty)"].join("\n"));
 });
 
-test("themed pretty tree keeps history dim and current node on accent", () => {
+test("themed pretty tree keeps history dim and current node on success", () => {
   const theme = {
     fg(color, text) {
       return `[${color}]${text}`;
@@ -188,8 +188,9 @@ test("themed pretty tree keeps history dim and current node on accent", () => {
     ],
     theme,
   );
-  assert.match(lines[0], /\[accent\]Spine Tree/);
+  assert.match(lines[0], /\[success\]Spine Tree/);
   assert.match(lines[1], /\[dim\]1 earlier branch/);
   assert.equal(lines[1].includes("[success]"), false);
-  assert.match(lines[3], /\[accent\]◉/);
+  assert.match(lines[2], /\[dim\]▾/);
+  assert.match(lines[3], /\[success\]◉/);
 });

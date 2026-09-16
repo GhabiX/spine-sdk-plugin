@@ -369,7 +369,7 @@ function plainPrettyLine(line: PrettyLine): string {
 function themePrettyLine(line: PrettyLine, theme: SpineTheme): string {
   switch (line.type) {
     case "header":
-      return `${theme.fg("dim", "• ")}${theme.fg("accent", theme.bold("Spine Tree"))}`;
+      return `${theme.fg("dim", "• ")}${theme.fg("success", theme.bold("Spine Tree"))}`;
     case "empty":
       return `${theme.fg("dim", "  └ ")}${theme.fg("dim", "(empty)")}`;
     case "history": {
@@ -385,7 +385,7 @@ function themePrettyLine(line: PrettyLine, theme: SpineTheme): string {
 function themeMarker(marker: string, theme: SpineTheme): string {
   switch (marker) {
     case "◉":
-      return theme.fg("accent", theme.bold(marker));
+      return theme.fg("success", theme.bold(marker));
     case "✓":
       return theme.fg("success", theme.bold(marker));
     case "×":

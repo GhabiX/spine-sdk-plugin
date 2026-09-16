@@ -127,7 +127,7 @@ function spawnPlainTaskLine(task: SpawnTaskView, isLast: boolean): string {
 function themeSpawnTaskLine(task: SpawnTaskView, isLast: boolean, theme: SpineTheme): string {
   const branch = theme.fg("dim", isLast ? "  └ " : "  ├ ");
   const marker = themeMarker(statusMarker(task.status), theme);
-  const word = theme.fg("accent", task.activityWord);
+  const word = theme.fg("success", task.activityWord);
   return `${branch}${marker} ${word} ${task.summary}`;
 }
 
@@ -163,7 +163,7 @@ function themeMarker(marker: string, theme: SpineTheme): string {
   switch (marker) {
     case "◐":
     case "◉":
-      return theme.fg("accent", theme.bold(marker));
+      return theme.fg("success", theme.bold(marker));
     case "✓":
       return theme.fg("success", theme.bold(marker));
     case "×":
