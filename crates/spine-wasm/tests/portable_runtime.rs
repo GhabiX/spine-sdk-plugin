@@ -1,5 +1,4 @@
 use serde_json::Value;
-use spine_core::host::RecordDigest;
 use spine_core::host::{RawBoundary, SpineCompactBarrierV1, ThreadNamespace};
 use spine_wasm::ABI_SCHEMA;
 use spine_wasm::Command;
@@ -50,7 +49,7 @@ fn prepare_requires_matching_persisted_transaction_before_install() {
         .expect("observe user");
     let started = runtime
         .execute(Command::BeginSampling {
-            prompt_digest: RecordDigest::digest(b"prompt").as_str().to_string(),
+            prompt_digest: None,
         })
         .expect("begin");
     assert!(matches!(started, CommandResult::SamplingStarted { .. }));
@@ -137,7 +136,7 @@ fn discard_returns_runtime_to_idle() {
         .expect("observe");
     runtime
         .execute(Command::BeginSampling {
-            prompt_digest: RecordDigest::digest(b"prompt").as_str().to_string(),
+            prompt_digest: None,
         })
         .expect("begin");
     runtime
@@ -160,7 +159,7 @@ fn discard_returns_runtime_to_idle() {
         .expect("discard");
     runtime
         .execute(Command::BeginSampling {
-            prompt_digest: RecordDigest::digest(b"next").as_str().to_string(),
+            prompt_digest: None,
         })
         .expect("new sampling after discard");
 }
@@ -175,7 +174,7 @@ fn failed_prepare_faults_the_portable_runtime() {
         .expect("observe");
     runtime
         .execute(Command::BeginSampling {
-            prompt_digest: RecordDigest::digest(b"prompt").as_str().to_string(),
+            prompt_digest: None,
         })
         .expect("begin");
     runtime
@@ -208,7 +207,7 @@ fn canonical_replay_installs_the_prepared_projection() {
     .expect("observe user");
     let started = match live
         .execute(Command::BeginSampling {
-            prompt_digest: RecordDigest::digest(b"replay-prompt").as_str().to_string(),
+            prompt_digest: None,
         })
         .expect("begin")
     {
@@ -280,7 +279,7 @@ fn incremental_replay_matches_one_shot_replay() {
     .expect("observe user");
     let started = match live
         .execute(Command::BeginSampling {
-            prompt_digest: RecordDigest::digest(b"prompt").as_str().to_string(),
+            prompt_digest: None,
         })
         .expect("begin")
     {
@@ -428,7 +427,7 @@ fn feature_off_does_not_enable_sampling_implicitly() {
     .expect("feature-off runtime");
     let error = runtime
         .execute(Command::BeginSampling {
-            prompt_digest: RecordDigest::digest(b"prompt").as_str().to_string(),
+            prompt_digest: None,
         })
         .expect_err("sampling stays disabled");
     assert_eq!(error.code, "core_error");
@@ -465,7 +464,7 @@ fn live_compact_is_idle_transaction_and_returns_new_projection() {
     }
     runtime
         .execute(Command::BeginSampling {
-            prompt_digest: RecordDigest::digest(b"after-compact").as_str().to_string(),
+            prompt_digest: None,
         })
         .expect("compact returns runtime to idle");
 }

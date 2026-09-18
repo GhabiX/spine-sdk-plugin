@@ -31,12 +31,10 @@ outputs.push(
 
 const expected = fixture.expected;
 assert.deepEqual(outputs[0].result.source_ids[0], expected.first_source_id);
-assert.equal(outputs[1].result.record.record.record_digest, expected.started_record_digest);
-assert.equal(outputs[1].result.record.record.source_digest, expected.started_source_digest);
+assert.deepEqual(outputs[1].result.record.record.attempt_id, expected.started_attempt_id);
 assert.deepEqual(outputs[2].result.source_ids[0], expected.second_source_id);
 assert.equal(outputs[3].result.transaction_id, expected.transaction_id);
-assert.equal(outputs[3].result.record.record.source_digest, expected.commit_source_digest);
-assert.equal(outputs[3].result.context_plan.plan_digest, expected.plan_digest);
+assert.deepEqual(outputs[3].result.record.record.commit_id, expected.commit_id);
 assert.deepEqual(outputs[3].result.projection.cursor, expected.cursor);
 assert.equal(outputs[3].result.projection.last_boundary, expected.last_boundary);
 assert.equal(outputs[4].result.transaction_id, expected.transaction_id);

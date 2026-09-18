@@ -119,13 +119,13 @@ export class SpineController {
     });
   }
 
-  async beginSampling(promptDigest: string): Promise<SamplingArchiveRecord> {
+  async beginSampling(): Promise<SamplingArchiveRecord> {
     return this.#exclusive(async () => {
-      const result = await this.#executeRuntime({ type: "begin_sampling", prompt_digest: promptDigest });
+      const result = await this.#executeRuntime({ type: "begin_sampling" });
       const started = expectResult(result, "sampling_started").record;
       try {
         await this.#archive.persist({
-          durabilityId: archiveRecordDigest(started),
+          durabilityId: archiveRecordId(started),
           record: started,
         });
       } catch (cause) {
@@ -423,8 +423,11 @@ export class SpineController {
   }
 }
 
-function archiveRecordDigest(record: SamplingArchiveRecord): string {
-  return record.record.record_digest;
+function archiveRecordId(record: SamplingArchiveRecord): string {
+  if (record.type === "sampling_commit") {
+    return record.record.commit_id.value;
+  }
+  return record.record.attempt_id.value;
 }
 
 export function packReplayApplyBatches(inputs: readonly ReplayItem[]): ReplayItem[][] {

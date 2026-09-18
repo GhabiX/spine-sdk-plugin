@@ -142,9 +142,9 @@ export interface SamplingStarted {
   epoch: SafeInteger;
   pre_boundary: EpochOrdinalId;
   previous_commit_id: NamespacedId | null;
-  prompt_digest: Digest;
-  source_digest: Digest;
-  record_digest: Digest;
+  prompt_digest?: Digest;
+  source_digest?: Digest;
+  record_digest?: Digest;
 }
 
 export interface CommittedSpineExecution {
@@ -158,7 +158,7 @@ export interface CommittedSpineExecution {
 export interface SamplingCommit {
   schema: "spine.sampling.commit";
   attempt_id: NamespacedId;
-  started_record_digest: Digest;
+  started_record_digest?: Digest;
   commit_id: NamespacedId;
   epoch: SafeInteger;
   previous_pre_boundary: EpochOrdinalId | null;
@@ -167,8 +167,8 @@ export interface SamplingCommit {
   previous_commit_id: NamespacedId | null;
   input_tokens?: SafeInteger;
   executions: CommittedSpineExecution[];
-  source_digest: Digest;
-  record_digest: Digest;
+  source_digest?: Digest;
+  record_digest?: Digest;
 }
 
 export type SamplingArchiveRecord =
@@ -191,10 +191,10 @@ export interface ContextPlanRecipe {
   schema: "spine.context.plan.v1";
   thread: ThreadNamespace;
   epoch: SafeInteger;
-  source_snapshot_digest: Digest;
+  source_snapshot_digest?: Digest;
   cells: ContextPlanCell[];
   memory_slots: MemorySlot[];
-  plan_digest: Digest;
+  plan_digest?: Digest;
 }
 
 export interface SourceBinding {
@@ -236,7 +236,7 @@ export interface CompactBarrier {
   next_epoch: SafeInteger;
   boundary: SafeInteger;
   replacement_boundaries: SafeInteger[];
-  replacement_digest: Digest;
+  replacement_digest?: Digest;
 }
 
 export type ReplayItem =
@@ -247,7 +247,7 @@ export type ReplayItem =
 
 export type Command =
   | { type: "observe_sources"; characters: SourceCharacter[] }
-  | { type: "begin_sampling"; prompt_digest: Digest }
+  | { type: "begin_sampling"; prompt_digest?: Digest }
   | { type: "register_execution"; key: string }
   | {
       type: "stage_execution";
@@ -261,8 +261,8 @@ export type Command =
       terminal: Terminal;
       input_tokens?: SafeInteger;
     }
-  | { type: "install_prepared"; transaction_id: Digest }
-  | { type: "discard_prepared"; transaction_id: Digest }
+  | { type: "install_prepared"; transaction_id: string }
+  | { type: "discard_prepared"; transaction_id: string }
   | { type: "compact"; barrier: CompactBarrier }
   | { type: "preview" }
   | { type: "source_snapshot" }
@@ -285,7 +285,7 @@ export type CommandResult =
   | { type: "execution_finished" }
   | {
       type: "finish_prepared";
-      transaction_id: Digest;
+      transaction_id: string;
       record: SamplingArchiveRecord;
       context_plan: ContextPlanRecipe;
       projection: SpineProjection;
@@ -293,11 +293,11 @@ export type CommandResult =
   | { type: "sampling_orphaned" }
   | {
       type: "prepared_installed";
-      transaction_id: Digest;
+      transaction_id: string;
       context_plan: ContextPlanRecipe;
       projection: SpineProjection;
     }
-  | { type: "prepared_discarded"; transaction_id: Digest }
+  | { type: "prepared_discarded"; transaction_id: string }
   | {
       type: "compacted";
       context_plan: ContextPlanRecipe;

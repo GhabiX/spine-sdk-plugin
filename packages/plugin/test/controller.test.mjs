@@ -80,7 +80,7 @@ function runtimeWith(log, overrides = {}) {
         case "prepare_finish":
           return {
             type: "finish_prepared",
-            transaction_id: "commit-digest",
+            transaction_id: "commit-1",
             record: COMMIT,
             context_plan: PLAN,
             projection: PROJECTION,
@@ -127,7 +127,7 @@ function ports(log, options = {}) {
     archive: {
       async persist(entry) {
         log.push(`persist:${entry.durabilityId}`);
-        const atStart = entry.durabilityId === "start-record";
+        const atStart = entry.durabilityId === "attempt-1";
         const shouldFail = options.persistErrorAt === "start" ? atStart : !atStart;
         if (options.persistError && shouldFail) throw options.persistError;
       },
@@ -146,17 +146,17 @@ test("finish persists before install and publishes only after install", async ()
   const host = ports(log);
   const controller = new SpineController(runtimeWith(log), host.archive, host.context);
 
-  await controller.beginSampling("prompt");
+  await controller.beginSampling();
   const result = await controller.finishSampling({ terminal: "completed", inputTokens: 42 });
 
   assert.equal(result.type, "committed");
   assert.deepEqual(log, [
     "runtime:begin_sampling",
-    "persist:start-record",
+    "persist:attempt-1",
     "runtime:prepare_finish",
-    "persist:commit-digest",
+    "persist:commit-1",
     "runtime:install_prepared",
-    "publish:commit-digest",
+    "publish:commit-1",
   ]);
 });
 
@@ -166,16 +166,16 @@ test("uncertain persistence failure discards prepared state and fault-latches", 
   const host = ports(log, { persistError });
   const controller = new SpineController(runtimeWith(log), host.archive, host.context);
 
-  await controller.beginSampling("prompt");
+  await controller.beginSampling();
   await assert.rejects(
     controller.finishSampling({ terminal: "completed" }),
     (error) => error instanceof SpineControllerError && error.fault.stage === "persist",
   );
   assert.deepEqual(log, [
     "runtime:begin_sampling",
-    "persist:start-record",
+    "persist:attempt-1",
     "runtime:prepare_finish",
-    "persist:commit-digest",
+    "persist:commit-1",
     "runtime:discard_prepared",
   ]);
   await assert.rejects(controller.preview(), SpineControllerError);
@@ -191,7 +191,7 @@ test("discard failure remains secondary to uncertain persistence", async () => {
   });
   const controller = new SpineController(runtime, host.archive, host.context);
 
-  await controller.beginSampling("prompt");
+  await controller.beginSampling();
   await assert.rejects(
     controller.finishSampling({ terminal: "completed" }),
     (error) =>
@@ -210,10 +210,10 @@ test("started-record persistence failure latches before sampling work proceeds",
   const controller = new SpineController(runtimeWith(log), host.archive, host.context);
 
   await assert.rejects(
-    controller.beginSampling("prompt"),
+    controller.beginSampling(),
     (error) => error instanceof SpineControllerError && error.fault.stage === "persist",
   );
-  assert.deepEqual(log, ["runtime:begin_sampling", "persist:start-record"]);
+  assert.deepEqual(log, ["runtime:begin_sampling", "persist:attempt-1"]);
   await assert.rejects(controller.preview(), SpineControllerError);
 });
 
@@ -223,14 +223,14 @@ test("controller serializes sampling work behind started-record persistence", as
   const host = ports(log);
   host.archive.persist = async (entry) => {
     log.push(`persist:${entry.durabilityId}`);
-    if (entry.durabilityId === "start-record") await persisted.promise;
+    if (entry.durabilityId === "attempt-1") await persisted.promise;
   };
   const controller = new SpineController(runtimeWith(log), host.archive, host.context);
 
-  const begin = controller.beginSampling("prompt");
+  const begin = controller.beginSampling();
   const register = controller.registerExecution("open-0");
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(log, ["runtime:begin_sampling", "persist:start-record"]);
+  assert.deepEqual(log, ["runtime:begin_sampling", "persist:attempt-1"]);
 
   persisted.resolve();
   await Promise.all([begin, register]);
@@ -242,15 +242,15 @@ test("publication failure latches after the durable commit is installed", async 
   const host = ports(log, { publishError: new Error("surface unavailable") });
   const controller = new SpineController(runtimeWith(log), host.archive, host.context);
 
-  await controller.beginSampling("prompt");
+  await controller.beginSampling();
   await assert.rejects(
     controller.finishSampling({ terminal: "completed" }),
     (error) => error instanceof SpineControllerError && error.fault.stage === "publish",
   );
   assert.deepEqual(log.slice(-3), [
-    "persist:commit-digest",
+    "persist:commit-1",
     "runtime:install_prepared",
-    "publish:commit-digest",
+    "publish:commit-1",
   ]);
 });
 

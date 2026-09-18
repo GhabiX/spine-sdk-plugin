@@ -55,7 +55,8 @@ pub enum Command {
         characters: Vec<SourceCharacter>,
     },
     BeginSampling {
-        prompt_digest: String,
+        #[serde(default)]
+        prompt_digest: Option<String>,
     },
     RegisterExecution {
         key: String,

@@ -41,12 +41,8 @@ fn native_runtime_matches_the_portable_golden_trace() {
         expected["first_source_id"]
     );
     assert_eq!(
-        outputs[1]["result"]["record"]["record"]["record_digest"],
-        expected["started_record_digest"]
-    );
-    assert_eq!(
-        outputs[1]["result"]["record"]["record"]["source_digest"],
-        expected["started_source_digest"]
+        outputs[1]["result"]["record"]["record"]["attempt_id"],
+        expected["started_attempt_id"]
     );
     assert_eq!(
         outputs[2]["result"]["source_ids"][0],
@@ -57,12 +53,8 @@ fn native_runtime_matches_the_portable_golden_trace() {
         expected["transaction_id"]
     );
     assert_eq!(
-        outputs[3]["result"]["record"]["record"]["source_digest"],
-        expected["commit_source_digest"]
-    );
-    assert_eq!(
-        outputs[3]["result"]["context_plan"]["plan_digest"],
-        expected["plan_digest"]
+        outputs[3]["result"]["record"]["record"]["commit_id"],
+        expected["commit_id"]
     );
     assert_eq!(
         outputs[3]["result"]["projection"]["cursor"],

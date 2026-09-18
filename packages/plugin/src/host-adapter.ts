@@ -72,8 +72,8 @@ export class SpineHostAdapter {
     return this.#controller.observeSources(characters);
   }
 
-  beginSampling(promptDigest: string): Promise<SamplingArchiveRecord> {
-    return this.#controller.beginSampling(promptDigest);
+  beginSampling(): Promise<SamplingArchiveRecord> {
+    return this.#controller.beginSampling();
   }
 
   registerExecution(key: string): Promise<void> {

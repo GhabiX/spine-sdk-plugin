@@ -85,7 +85,7 @@ function runtime(log) {
         case "prepare_finish":
           return {
             type: "finish_prepared",
-            transaction_id: "commit-digest-1",
+            transaction_id: "commit-1",
             record: COMMIT,
             context_plan: PLAN,
             projection: PROJECTION,
@@ -149,7 +149,7 @@ async function runTrace(kind) {
 
   const sourceIds = await adapter.observeSources(trace.sources);
   assert.deepEqual(sourceIds, [{ thread: "thread-1", epoch: 0, ordinal: 0 }]);
-  await adapter.beginSampling(trace.promptDigest);
+  await adapter.beginSampling();
   await adapter.observeSources(trace.samplingSources);
   await adapter.registerExecution(trace.execution.key);
   await adapter.stageExecution(
@@ -179,11 +179,11 @@ test("Pi and DeepSeek Harness produce the same semantic outcome for one typed tr
   assert.deepEqual(semanticOutcome(pi), semanticOutcome(dsh));
   assert.deepEqual(
     semanticOutcome(pi).archives.map(({ durabilityId }) => durabilityId),
-    ["started-digest-1", "commit-digest-1"],
+    ["attempt-1", "commit-1"],
   );
   const install = pi.findIndex((entry) => entry[0] === "runtime" && entry[1] === "install_prepared");
   const commit = pi.findIndex(
-    (entry) => entry[0] === "archive" && entry[2].durabilityId === "commit-digest-1",
+    (entry) => entry[0] === "archive" && entry[2].durabilityId === "commit-1",
   );
   const publish = pi.findIndex((entry) => entry[0] === "context");
   assert.ok(commit < install && install < publish);
@@ -238,7 +238,7 @@ test("real WASM produces equivalent Pi and DSH archives and ContextPlan", async 
         ? await createPiSpineAdapter({ enabled: true, runtime: node.client, host })
         : await createDeepSeekHarnessSpineAdapter({ enabled: true, runtime: node.client, host });
       await adapter.observeSources(trace.sources);
-      await adapter.beginSampling(trace.promptDigest);
+      await adapter.beginSampling();
       await adapter.observeSources(trace.samplingSources);
       await adapter.registerExecution(trace.execution.key);
       await adapter.stageExecution(
@@ -366,7 +366,7 @@ test("concrete DeepSeek Harness port appends and flushes required records and at
     host: port,
   });
 
-  await adapter.beginSampling(trace.promptDigest);
+  await adapter.beginSampling();
   await adapter.finishSampling(trace.terminal);
   const appends = log.filter(([kind]) => kind === "append");
   assert.deepEqual(appends.map(([, type]) => type), [
@@ -383,7 +383,7 @@ test("concrete DeepSeek Harness port appends and flushes required records and at
     messages: [{ id: "message-1", role: "user", content: [], source: { kind: "user" } }],
     payload: {
       schema: "spine-host-protocol/v1",
-      transactionId: "commit-digest-1",
+      transactionId: "commit-1",
       contextPlan: PLAN,
       projection: PROJECTION,
       messages: [{ id: "message-1", role: "user", content: [], source: { kind: "user" } }],

@@ -43,11 +43,9 @@
   "expected": {
     "first_source_id": { "thread": "portable-trace", "epoch": 0, "ordinal": 0 },
     "second_source_id": { "thread": "portable-trace", "epoch": 0, "ordinal": 1 },
-    "started_record_digest": "092a31da1696cdcc1e65636cc32ca2e0f833f082208d0be08cdee97ef3aa786b",
-    "started_source_digest": "eb75b3eae1947072a327db9fbe695bdf7682efab592f6ee29e1ce2f7d29fd476",
-    "transaction_id": "e3fd1856f2978a1eace49cb15f0b31412fde5e2d8929491aa2e63e097a624b78",
-    "commit_source_digest": "566b1895412d322f5267986454466b9368776eff4aa49acfb8ba1e54b687a906",
-    "plan_digest": "f81566e90c2fb1c90c6b05bc146ee67cb4a8dc90dd29d3dbd6522c6b95e34690",
+    "started_attempt_id": { "thread": "portable-trace", "value": "portable-trace-attempt-0" },
+    "transaction_id": "portable-trace-commit-0",
+    "commit_id": { "thread": "portable-trace", "value": "portable-trace-commit-0" },
     "cursor": [1],
     "last_boundary": 1
   }

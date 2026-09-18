@@ -14,7 +14,6 @@ use spine_core::host::CanonicalReplayBuilder;
 use spine_core::host::ContextEpoch;
 use spine_core::host::Feature;
 use spine_core::host::PreparedSamplingCommit;
-use spine_core::host::RecordDigest;
 use spine_core::host::SamplingArchiveRecord;
 use spine_core::host::SamplingFinish;
 use spine_core::host::SamplingHandle;
@@ -117,11 +116,10 @@ impl PortableRuntime {
                     .map_err(BindingError::core)?;
                 Ok(CommandResult::SourcesObserved { source_ids })
             }
-            Command::BeginSampling { prompt_digest } => {
+            Command::BeginSampling { prompt_digest: _ } => {
                 self.require_idle()?;
-                let digest = RecordDigest::parse(prompt_digest).map_err(BindingError::input)?;
                 let handle = self.runtime.begin_sampling().map_err(BindingError::core)?;
-                let record = match self.runtime.sampling_started_record(&handle, digest) {
+                let record = match self.runtime.sampling_started_record(&handle) {
                     Ok(record) => record,
                     Err(error) => {
                         let _ = self.runtime.abort_sampling(&handle);
@@ -270,7 +268,7 @@ impl PortableRuntime {
             }
             SamplingFinish::Prepared(commit) => {
                 let record = SamplingArchiveRecord::SamplingCommit(commit.durable_record().clone());
-                let transaction_id = record.record_digest().as_str().to_string();
+                let transaction_id = commit.durable_record().commit_id.as_str().to_string();
                 let result = CommandResult::FinishPrepared {
                     transaction_id: transaction_id.clone(),
                     record: Box::new(record),
