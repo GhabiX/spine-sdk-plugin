@@ -7,7 +7,7 @@ import type {
 } from "@spinejit/spine-sdk";
 
 import type { SpineHostAdapter } from "../host-adapter.js";
-import { recoverStagedSpawnResults } from "../spawn.js";
+import { recoverStagedSpawnResults, spawnResultListsEqual } from "../spawn.js";
 import { PiSourceBindings, sourceObservation, type PiAgentMessage } from "./messages.js";
 import {
   PI_ADAPTER_ID,
@@ -284,7 +284,7 @@ function verifyCommittedSpawnStaging(
         `Pi Spine Spawn staging for ${batchId} does not form a complete ordered receipt: ${String(cause)}`,
       );
     }
-    if (JSON.stringify(recovered) !== JSON.stringify(execution.operation.terminal_results)) {
+    if (!spawnResultListsEqual(recovered, execution.operation.terminal_results)) {
       throw new PiSessionRecoveryError(
         `Pi Spine Spawn staging for ${batchId} disagrees with the canonical commit`,
       );

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   executeSpawnBatch,
   recoverStagedSpawnResults,
+  spawnResultsEqual,
   SpawnBatchExecutionError,
   SpawnRecoveryError,
 } from "../dist/index.js";
@@ -39,7 +40,9 @@ test("spawn returns task order and durably stages each terminal result", async (
 
   assert.deepEqual(results.map(({ ordinal }) => ordinal), [0, 1]);
   assert.deepEqual(results.map(({ memory_body }) => memory_body), ["first-memory", "second-memory"]);
+  assert.deepEqual(results.map(({ diagnostic }) => diagnostic), [null, null]);
   assert.deepEqual(staged.map(([, result]) => result.ordinal).sort(), [0, 1]);
+  assert.deepEqual(staged.map(([, result]) => result.diagnostic).sort(), [null, null]);
 });
 
 test("spawn aborts siblings and rejects the whole batch without invented memory", async () => {
@@ -107,6 +110,33 @@ test("spawn rejects structurally invalid terminal results before staging", async
     SpawnBatchExecutionError,
   );
   assert.equal(persisted, false);
+});
+
+test("spawn result equality treats omitted optional fields as JSON null", () => {
+  const omitted = {
+    ordinal: 0,
+    outcome: "completed",
+    memory_body: "ALPHA",
+    execution_ref: "spawn-1:0",
+  };
+  const wasm = {
+    ordinal: 0,
+    outcome: "completed",
+    memory_body: "ALPHA",
+    diagnostic: null,
+    execution_ref: "spawn-1:0",
+  };
+  assert.equal(spawnResultsEqual(omitted, wasm), true);
+  assert.notEqual(JSON.stringify(omitted), JSON.stringify(wasm));
+  assert.equal(spawnResultsEqual(omitted, { ...wasm, memory_body: "BETA" }), false);
+  assert.equal(spawnResultsEqual(omitted, { ...wasm, diagnostic: "child stderr" }), false);
+  assert.equal(
+    spawnResultsEqual(
+      { ordinal: 0, outcome: "completed", memory_body: "ALPHA" },
+      { ordinal: 0, outcome: "completed", memory_body: "ALPHA", diagnostic: null, execution_ref: null },
+    ),
+    true,
+  );
 });
 
 test("spawn recovery restores task order and rejects partial staging", () => {

@@ -7,6 +7,7 @@ import {
   operationFromPiToolCall,
   PiSamplingLifecycle,
   PiSamplingLifecycleError,
+  PiSpineToolMixError,
   PiSourceBindings,
   providerPayloadDigest,
 } from "../dist/pi/index.js";
@@ -126,6 +127,74 @@ test("Pi lifecycle stages Spawn only after terminal results and abort wins termi
   assert.deepEqual(log.at(-1), ["finish-sampling", "cancelled", undefined]);
 });
 
+test("Pi lifecycle treats idle and repeated finishTurn as identity", async () => {
+  const { log, lifecycle } = harness();
+  const cancelled = {
+    aborted: true,
+    message: { role: "assistant", content: [], stopReason: "error", timestamp: 2 },
+  };
+  assert.equal(await lifecycle.finishTurn(cancelled), null);
+  assert.equal(lifecycle.fault, null);
+  await lifecycle.beginSampling({ input: [] });
+  await lifecycle.finishTurn(cancelled);
+  assert.deepEqual(log.at(-1), ["finish-sampling", "cancelled", undefined]);
+  assert.equal(await lifecycle.finishTurn(cancelled), null);
+  assert.equal(
+    await lifecycle.finishTurn({
+      aborted: false,
+      message: { role: "assistant", content: [], stopReason: "error", timestamp: 3 },
+    }),
+    null,
+  );
+  assert.equal(lifecycle.fault, null);
+  assert.equal(log.filter(([kind]) => kind === "finish-sampling").length, 1);
+  await lifecycle.beginSampling({ input: ["followup"] });
+  await lifecycle.finishTurn({
+    aborted: false,
+    message: { role: "assistant", content: [], stopReason: "stop", timestamp: 4 },
+  });
+  assert.equal(log.filter(([kind]) => kind === "finish-sampling").length, 2);
+  assert.deepEqual(log.at(-1), ["finish-sampling", "completed", undefined]);
+});
+
+test("Pi lifecycle blocks spawn mixed with tree tools without latching a fault", async () => {
+  const { lifecycle } = harness();
+  const tasks = [
+    { summary: "a", prompt: "pa" },
+    { summary: "b", prompt: "pb" },
+  ];
+  await lifecycle.beginSampling({ input: [] });
+  assert.equal(await lifecycle.registerToolCall("open-1", "spine_open", { goal: "inspect" }), true);
+  await assert.rejects(
+    lifecycle.registerToolCall("spawn-1", "spine_spawn", { tasks }),
+    (error) =>
+      error instanceof PiSpineToolMixError &&
+      /spine_spawn cannot be mixed with spine_open, spine_close, or spine_next/.test(error.message),
+  );
+  assert.equal(lifecycle.fault, null);
+  assert.equal(await lifecycle.finishToolCall("open-1", true), true);
+  await lifecycle.finishTurn({
+    aborted: false,
+    message: { role: "assistant", content: [], stopReason: "toolUse", timestamp: 2 },
+  });
+  assert.equal(lifecycle.fault, null);
+
+  await lifecycle.beginSampling({ input: ["followup"] });
+  assert.equal(await lifecycle.registerToolCall("spawn-2", "spine_spawn", { tasks }), true);
+  await assert.rejects(
+    lifecycle.registerToolCall("close-1", "spine_close", { memory: "done" }),
+    PiSpineToolMixError,
+  );
+  assert.equal(lifecycle.fault, null);
+  assert.equal(await lifecycle.finishToolCall("close-1", true), false);
+  assert.equal(await lifecycle.finishToolCall("spawn-2", true), true);
+  await lifecycle.finishTurn({
+    aborted: false,
+    message: { role: "assistant", content: [], stopReason: "toolUse", timestamp: 3 },
+  });
+  assert.equal(lifecycle.fault, null);
+});
+
 test("Pi lifecycle faults closed on an unfinished transition", async () => {
   const { lifecycle } = harness();
   await lifecycle.beginSampling({ input: [] });
@@ -138,6 +207,26 @@ test("Pi lifecycle faults closed on an unfinished transition", async () => {
     PiSamplingLifecycleError,
   );
   await assert.rejects(lifecycle.previewContext(), PiSamplingLifecycleError);
+});
+
+test("Pi lifecycle drains unfinished executions on cancelled finishTurn", async () => {
+  const { log, lifecycle } = harness();
+  await lifecycle.beginSampling({ input: [] });
+  await lifecycle.registerToolCall("call", "spine_open", { goal: "scope" });
+  await lifecycle.finishTurn({
+    aborted: true,
+    message: { role: "assistant", content: [], stopReason: "error", timestamp: 2 },
+  });
+  assert.equal(lifecycle.fault, null);
+  assert.deepEqual(log.at(-2), ["finish-execution", "call", false]);
+  assert.deepEqual(log.at(-1), ["finish-sampling", "cancelled", undefined]);
+  await lifecycle.beginSampling({ input: ["followup"] });
+  await lifecycle.finishTurn({
+    aborted: false,
+    message: { role: "assistant", content: [], stopReason: "stop", timestamp: 3 },
+  });
+  assert.equal(lifecycle.fault, null);
+  assert.deepEqual(log.at(-1), ["finish-sampling", "completed", undefined]);
 });
 
 test("Pi lifecycle rejects deferred assistant responses instead of inventing completion", async () => {

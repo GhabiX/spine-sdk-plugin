@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import extension, {
@@ -36,6 +37,18 @@ function mockPi() {
       getThinkingLevel() {
         return "low";
       },
+      getActiveTools() {
+        return this.activeTools ?? [
+          "read",
+          "bash",
+          "edit",
+          "write",
+          "spine_open",
+          "spine_close",
+          "spine_next",
+          "spine_spawn",
+        ];
+      },
       setActiveTools(names) {
         this.activeTools = [...names];
       },
@@ -61,7 +74,7 @@ function mockPi() {
   };
 }
 
-function extensionContext(sessionId = "pi-session") {
+function extensionContext(sessionId = "pi-session", options = {}) {
   const notifications = [];
   const widgets = [];
   let aborts = 0;
@@ -80,7 +93,8 @@ function extensionContext(sessionId = "pi-session") {
       thinkingLevel: "low",
       sessionManager: {
         getSessionId: () => sessionId,
-        getBranch: () => [],
+        getBranch: () => options.branch ?? [],
+        getSessionFile: () => options.sessionFile,
       },
       ui: {
         notify(message, level) {
@@ -245,7 +259,7 @@ test("before_agent_start installs the canonical Spine instruction", async () => 
   }
 });
 
-test("child mode is selected after Pi applies extension flags", async () => {
+test("child mode keeps ordinary tools, Spine tree tools, nested spawn, and typed return", async () => {
   const pi = mockPi();
   createPiExtension()(pi.api);
   assert.equal(pi.tools.has("spine_child_return"), false);
@@ -256,7 +270,38 @@ test("child mode is selected after Pi applies extension flags", async () => {
     extensionContext().context,
   );
   assert.equal(pi.tools.has("spine_child_return"), true);
-  assert.deepEqual(pi.api.activeTools, ["spine_child_return"]);
+  assert.deepEqual(pi.api.activeTools, [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "spine_open",
+    "spine_close",
+    "spine_next",
+    "spine_spawn",
+    "spine_child_return",
+  ]);
+});
+
+test("child mode installs Spine lifecycle so descendant open/close/next can run", async () => {
+  const pi = mockPi();
+  pi.setChildFlag(true);
+  createPiExtension()(pi.api);
+  const ctx = extensionContext();
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "before_agent_start",
+    {
+      type: "before_agent_start",
+      prompt: "child work",
+      systemPrompt: "base system prompt",
+      systemPromptOptions: {},
+    },
+    ctx.context,
+  );
+  assert.match(result.systemPrompt, /spine_open/);
+  assert.match(result.systemPrompt, /spine_close/);
+  assert.match(result.systemPrompt, /spine_next/);
 });
 
 test("session transitions never install a stale asynchronous runtime", async () => {
@@ -295,8 +340,13 @@ test("session_tree resets a prior lifecycle fault", async () => {
   createPiExtension()(pi.api);
   await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
   await pi.emit(
-    "turn_end",
-    { type: "turn_end", message: assistant("invalid-before-sampling") },
+    "tool_call",
+    {
+      type: "tool_call",
+      toolCallId: "open-1",
+      toolName: "spine_open",
+      input: { goal: "inspect" },
+    },
     ctx.context,
   );
   assert.equal(ctx.aborts, 1);
@@ -307,9 +357,128 @@ test("session_tree resets a prior lifecycle fault", async () => {
   assert.deepEqual(recovered.messages, [user("[U1]\nrecovered")]);
 });
 
-test("Spawn child invocation isolates the extension and preserves the prompt argument", async () => {
+test("user abort of a host tool does not latch a fault on a stray follow-up turn_end", async () => {
   const pi = mockPi();
   const ctx = extensionContext();
+  const commits = [];
+  createPiExtension({
+    onSamplingCommit(info) {
+      commits.push(info.commit);
+    },
+  })(pi.api);
+
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit("message_end", { type: "message_end", message: user("investigate") }, ctx.context);
+  const firstPrompt = await pi.emit(
+    "before_agent_start",
+    {
+      type: "before_agent_start",
+      prompt: "investigate",
+      systemPrompt: "base system prompt",
+      systemPromptOptions: {},
+    },
+    ctx.context,
+  );
+  assert.match(firstPrompt.systemPrompt, /spine_open/);
+  await pi.emit(
+    "before_provider_request",
+    { type: "before_provider_request", payload: { model: "test", input: ["investigate"] } },
+    ctx.context,
+  );
+
+  const callMessage = assistant(
+    [{ type: "toolCall", id: "bash-1", name: "bash", arguments: { command: "find /data /home" } }],
+    "toolUse",
+  );
+  await pi.emit("message_end", { type: "message_end", message: callMessage }, ctx.context);
+  await pi.emit(
+    "tool_call",
+    {
+      type: "tool_call",
+      toolCallId: "bash-1",
+      toolName: "bash",
+      input: { command: "find /data /home" },
+    },
+    ctx.context,
+  );
+
+  const aborted = new AbortController();
+  aborted.abort();
+  ctx.context.signal = aborted.signal;
+  await pi.emit(
+    "tool_result",
+    {
+      type: "tool_result",
+      toolCallId: "bash-1",
+      toolName: "bash",
+      input: { command: "find /data /home" },
+      content: [{ type: "text", text: "Command aborted" }],
+      details: {},
+      isError: true,
+    },
+    ctx.context,
+  );
+  await pi.emit(
+    "turn_end",
+    { type: "turn_end", turnIndex: 0, message: callMessage, toolResults: [] },
+    ctx.context,
+  );
+  await pi.emit(
+    "turn_end",
+    { type: "turn_end", turnIndex: 1, message: assistant([], "error") },
+    ctx.context,
+  );
+
+  assert.equal(ctx.aborts, 0);
+  assert.equal(commits.length, 1);
+  assert.equal(commits[0].type, "committed");
+  assert.equal(commits[0].record.type, "sampling_commit");
+  assert.equal(
+    pi.entries.filter((entry) => entry.customType === "spine.archive.v1").length,
+    2,
+  );
+
+  ctx.context.signal = new AbortController().signal;
+  const continued = await pi.emit(
+    "before_agent_start",
+    {
+      type: "before_agent_start",
+      prompt: "continue",
+      systemPrompt: "base system prompt",
+      systemPromptOptions: {},
+    },
+    ctx.context,
+  );
+  assert.match(continued.systemPrompt, /spine_open/);
+  await pi.emit(
+    "before_provider_request",
+    { type: "before_provider_request", payload: { model: "test", input: ["continue"] } },
+    ctx.context,
+  );
+  const done = assistant([{ type: "text", text: "ok" }], "stop");
+  await pi.emit("message_end", { type: "message_end", message: done }, ctx.context);
+  await pi.emit("turn_end", { type: "turn_end", turnIndex: 2, message: done }, ctx.context);
+
+  assert.equal(ctx.aborts, 0);
+  assert.equal(commits.length, 2);
+  assert.equal(
+    pi.entries.filter((entry) => entry.customType === "spine.archive.v1").length,
+    4,
+  );
+});
+
+test("Spawn child invocation inherits parent extensions and preserves the prompt argument", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext("pi-session", {
+    sessionFile: "/tmp/parent-session.jsonl",
+    branch: [{
+      type: "message",
+      id: "aaaaaaaa",
+      parentId: null,
+      timestamp: "2026-09-17T12:00:00.000Z",
+      message: { role: "user", content: "parent prefix TOKEN", timestamp: 1 },
+    }],
+  });
   let childCommand;
   let childArgs;
   pi.api.exec = async (command, args) => {
@@ -364,21 +533,35 @@ test("Spawn child invocation isolates the extension and preserves the prompt arg
   });
   assert.equal(childCommand, invocation.command);
   assert.deepEqual(childArgs.slice(0, invocation.args.length), invocation.args);
-  assert.ok(childArgs.includes("--no-extensions"));
+  assert.equal(childArgs.includes("--no-session"), false);
+  assert.ok(childArgs.includes("--session"));
+  assert.equal(childArgs.includes("--no-extensions"), false);
   assert.ok(childArgs.includes("--extension"));
   assert.ok(childArgs.includes("--spine-child=true"));
+  assert.ok(childArgs.includes("--tools"));
+  const tools = childArgs[childArgs.indexOf("--tools") + 1];
+  assert.match(tools, /\bread\b/);
+  assert.match(tools, /\bbash\b/);
+  assert.match(tools, /\bspine_child_return\b/);
   assert.ok(childArgs.includes("--provider"));
   assert.equal(childArgs[childArgs.indexOf("--provider") + 1], "google");
   assert.ok(childArgs.includes("--model"));
   assert.equal(childArgs[childArgs.indexOf("--model") + 1], "gemini-3.8-flash");
   assert.ok(childArgs.includes("--thinking"));
   assert.equal(childArgs[childArgs.indexOf("--thinking") + 1], "low");
-  assert.match(childArgs.at(-1), /^do peer work\n\nBefore ending/);
+  const sessionPath = childArgs[childArgs.indexOf("--session") + 1];
+  assert.equal(sessionPath, "/tmp/spine-spawn/spawn-1/1.jsonl");
+  const prefix = await readFile(sessionPath, "utf8");
+  assert.match(prefix, /parent prefix TOKEN/);
+  assert.match(prefix, /"parentSession":"\/tmp\/parent-session.jsonl"/);
+  assert.match(childArgs.at(-1), /You are: peer/);
+  assert.match(childArgs.at(-1), /already an active branch scope/);
+  assert.match(childArgs.at(-1), /Assignment:\ndo peer work/);
   assert.equal(result.details.results[0].memory_body, "typed child memory");
   assert.equal(pi.entries.at(-1).customType, "spine.spawn-terminal.v1");
 });
 
-test("Spawn records typed nonzero child memory but rejects an untyped crash", async () => {
+test("Spawn records typed nonzero child memory as an errored receipt", async () => {
   const typed = mockPi();
   const typedCtx = extensionContext();
   typed.api.exec = async () => ({
@@ -433,47 +616,71 @@ test("Spawn records typed nonzero child memory but rejects an untyped crash", as
       diagnostic: "child failed after return",
     },
   );
+});
 
-  const untyped = mockPi();
-  const untypedCtx = extensionContext();
-  untyped.api.exec = async () => ({
-    stdout: "child process crashed",
-    stderr: "fatal",
-    code: 2,
-    killed: false,
-  });
-  createPiExtension()(untyped.api);
-  await untyped.emit("session_start", { type: "session_start", reason: "new" }, untypedCtx.context);
-  await untyped.emit(
+test("Spawn records mixed receipts when one child omits typed return", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  pi.api.exec = async (_command, args) => {
+    const assignment = args.at(-1);
+    if (typeof assignment === "string" && assignment.includes("You are: peer")) {
+      return {
+        stdout: JSON.stringify({
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{
+              type: "toolCall",
+              name: "spine_child_return",
+              arguments: { memory: "typed sibling memory" },
+            }],
+          },
+        }),
+        stderr: "",
+        code: 0,
+        killed: false,
+      };
+    }
+    return {
+      stdout: "child process crashed",
+      stderr: "fatal",
+      code: 2,
+      killed: false,
+    };
+  };
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit(
     "before_provider_request",
     { type: "before_provider_request", payload: { input: [] } },
-    untypedCtx.context,
+    ctx.context,
   );
-  await untyped.emit(
+  await pi.emit(
     "tool_call",
     {
       type: "tool_call",
-      toolCallId: "spawn-untyped-failure",
+      toolCallId: "spawn-mixed",
       toolName: "spine_spawn",
-      input: { tasks: [{ summary: "child", prompt: "crash" }, { summary: "peer", prompt: "peer crash" }] },
+      input: { tasks: [{ summary: "child", prompt: "crash" }, { summary: "peer", prompt: "succeed" }] },
     },
-    untypedCtx.context,
+    ctx.context,
   );
-  await assert.rejects(
-    untyped.tools.get("spine_spawn").execute(
-      "spawn-untyped-failure",
-      { tasks: [{ summary: "child", prompt: "crash" }, { summary: "peer", prompt: "peer crash" }] },
-      undefined,
-      undefined,
-      untypedCtx.context,
-    ),
-    (error) =>
-      error?.name === "SpawnBatchExecutionError" &&
-      /Pi Spawn child returned 0 typed terminal memories/.test(String(error.cause)),
+  const result = await pi.tools.get("spine_spawn").execute(
+    "spawn-mixed",
+    { tasks: [{ summary: "child", prompt: "crash" }, { summary: "peer", prompt: "succeed" }] },
+    undefined,
+    undefined,
+    ctx.context,
   );
+  assert.equal(result.details.results.length, 2);
+  assert.equal(result.details.results[0].outcome, "errored");
+  assert.match(result.details.results[0].memory_body, /0 typed terminal memories/);
+  assert.match(result.details.results[0].diagnostic, /fatal/);
+  assert.equal(result.details.results[1].outcome, "completed");
+  assert.equal(result.details.results[1].memory_body, "typed sibling memory");
   assert.equal(
-    untyped.entries.some((entry) => entry.customType === "spine.spawn-terminal.v1"),
-    false,
+    pi.entries.filter((entry) => entry.customType === "spine.spawn-terminal.v1").length,
+    2,
   );
 });
 
@@ -567,6 +774,103 @@ test("WASM-backed extension completes one Pi Open sampling transaction", async (
   assert.deepEqual(ctx.widgets.at(-1), ["spine-tree", undefined, undefined]);
 });
 
+test("WASM-backed extension blocks spawn mixed with open without aborting the session", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  createPiExtension()(pi.api);
+
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit("message_end", { type: "message_end", message: user("request") }, ctx.context);
+  await pi.emit(
+    "before_provider_request",
+    { type: "before_provider_request", payload: { model: "test", input: ["request"] } },
+    ctx.context,
+  );
+  const spawnInput = {
+    tasks: [
+      { summary: "child", prompt: "do child work" },
+      { summary: "peer", prompt: "do peer work" },
+    ],
+  };
+  const callMessage = assistant([
+    { type: "toolCall", id: "open-1", name: "spine_open", arguments: { goal: "inspect" } },
+    { type: "toolCall", id: "spawn-1", name: "spine_spawn", arguments: spawnInput },
+  ], "toolUse");
+  await pi.emit("message_end", { type: "message_end", message: callMessage }, ctx.context);
+
+  const openAdmission = await pi.emit(
+    "tool_call",
+    { type: "tool_call", toolCallId: "open-1", toolName: "spine_open", input: { goal: "inspect" } },
+    ctx.context,
+  );
+  const spawnAdmission = await pi.emit(
+    "tool_call",
+    { type: "tool_call", toolCallId: "spawn-1", toolName: "spine_spawn", input: spawnInput },
+    ctx.context,
+  );
+  assert.equal(openAdmission, undefined);
+  assert.deepEqual(spawnAdmission, {
+    block: true,
+    reason: "spine_spawn cannot be mixed with spine_open, spine_close, or spine_next",
+  });
+  assert.equal(ctx.aborts, 0);
+
+  const openResult = await pi.tools.get("spine_open").execute(
+    "open-1",
+    { goal: "inspect" },
+    undefined,
+    undefined,
+    ctx.context,
+  );
+  await pi.emit(
+    "tool_result",
+    {
+      type: "tool_result",
+      toolCallId: "open-1",
+      toolName: "spine_open",
+      input: { goal: "inspect" },
+      content: openResult.content,
+      details: openResult.details,
+      isError: false,
+    },
+    ctx.context,
+  );
+  const resultMessage = {
+    role: "toolResult",
+    toolCallId: "open-1",
+    toolName: "spine_open",
+    content: openResult.content,
+    details: openResult.details,
+    isError: false,
+    timestamp: 3,
+  };
+  await pi.emit("message_end", { type: "message_end", message: resultMessage }, ctx.context);
+  await pi.emit(
+    "turn_end",
+    { type: "turn_end", turnIndex: 0, message: callMessage, toolResults: [resultMessage] },
+    ctx.context,
+  );
+
+  assert.equal(ctx.aborts, 0);
+  assert.equal(
+    pi.entries.filter((entry) => entry.customType === "spine.archive.v1").at(-1).data.record.type,
+    "sampling_commit",
+  );
+
+  const continued = await pi.emit(
+    "before_agent_start",
+    {
+      type: "before_agent_start",
+      prompt: "continue",
+      systemPrompt: "base system prompt",
+      systemPromptOptions: {},
+    },
+    ctx.context,
+  );
+  assert.match(continued.systemPrompt, /spine_open/);
+  assert.equal(ctx.aborts, 0);
+});
+
 test("Pi overflow retry drops only the final retryable assistant", async () => {
   const pi = mockPi();
   const ctx = extensionContext();
@@ -637,6 +941,138 @@ test("Pi compact abort after Spine completion faults the live session", async ()
   assert.equal(ctx.aborts, 1);
   await pi.emit("session_compact", { type: "session_compact", compactionEntry: {}, fromExtension: true, reason: "manual", willRetry: false }, ctx.context);
   assert.equal(ctx.aborts, 1);
+});
+
+test("Pi compact abort before Spine compact cancels without latching a fault", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const kept = user("keep this recent request");
+  const entry = { type: "message", id: "kept-1", parentId: null, timestamp: "1", message: kept };
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete() {
+      return { content: [{ type: "text", text: "partial summary" }], stopReason: "aborted" };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "manual",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.deepEqual(result, { cancel: true });
+  assert.equal(ctx.aborts, 0);
+  assert.equal(pi.entries.filter((item) => item.customType === "spine.compact.v1").length, 0);
+  const continued = await pi.emit(
+    "before_agent_start",
+    {
+      type: "before_agent_start",
+      prompt: "continue",
+      systemPrompt: "base system prompt",
+      systemPromptOptions: {},
+    },
+    ctx.context,
+  );
+  assert.match(continued.systemPrompt, /spine_open/);
+});
+
+test("Pi compact summarization AbortError cancels without latching a fault", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const kept = user("keep this recent request");
+  const entry = { type: "message", id: "kept-1", parentId: null, timestamp: "1", message: kept };
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete() {
+      const error = new Error("aborted");
+      error.name = "AbortError";
+      throw error;
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "manual",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.deepEqual(result, { cancel: true });
+  assert.equal(ctx.aborts, 0);
+  assert.equal(pi.entries.filter((item) => item.customType === "spine.compact.v1").length, 0);
+  const continued = await pi.emit(
+    "before_agent_start",
+    {
+      type: "before_agent_start",
+      prompt: "continue",
+      systemPrompt: "base system prompt",
+      systemPromptOptions: {},
+    },
+    ctx.context,
+  );
+  assert.match(continued.systemPrompt, /spine_open/);
+});
+
+test("user abort after Spine tool register drains leftover execution without latching", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit(
+    "before_provider_request",
+    { type: "before_provider_request", payload: { model: "test", input: ["inspect"] } },
+    ctx.context,
+  );
+  await pi.emit(
+    "tool_call",
+    {
+      type: "tool_call",
+      toolCallId: "open-1",
+      toolName: "spine_open",
+      input: { goal: "inspect" },
+    },
+    ctx.context,
+  );
+  assert.equal(ctx.aborts, 0);
+
+  const aborted = new AbortController();
+  aborted.abort();
+  ctx.context.signal = aborted.signal;
+  await pi.emit(
+    "turn_end",
+    { type: "turn_end", turnIndex: 0, message: assistant([], "error") },
+    ctx.context,
+  );
+  assert.equal(ctx.aborts, 0);
+
+  ctx.context.signal = new AbortController().signal;
+  const continued = await pi.emit(
+    "before_agent_start",
+    {
+      type: "before_agent_start",
+      prompt: "continue",
+      systemPrompt: "base system prompt",
+      systemPromptOptions: {},
+    },
+    ctx.context,
+  );
+  assert.match(continued.systemPrompt, /spine_open/);
 });
 
 test("Pi custom compaction summarizes, durably barriers, and publishes replacement context", async () => {

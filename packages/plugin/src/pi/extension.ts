@@ -22,11 +22,19 @@ import { Type } from "typebox";
 
 import type { HostContextEnvelope } from "../host-adapter.js";
 import { executeSpawnBatch, type SpawnChildTerminal } from "../spawn.js";
+import type { SpawnTask } from "@spinejit/spine-sdk";
+import {
+  buildChildAssignment,
+  childSessionPath,
+  CHILD_RETURN_TOOL,
+  writeChildPrefixSession,
+} from "./child-session.js";
 import { createPiSpineAdapter, createPiSpawnStagingStore } from "./index.js";
 import {
   buildCompactBarrier,
   decodeSpawnTasks,
   PiSamplingLifecycle,
+  PiSpineToolMixError,
   PI_SPINE_TOOL_NAMES,
 } from "./lifecycle.js";
 import { materializePiContext, type PiAgentMessage } from "./messages.js";
@@ -51,7 +59,6 @@ import {
 } from "./spawn-view.js";
 
 const CHILD_FLAG = "spine-child";
-const CHILD_RETURN_TOOL = "spine_child_return";
 const SPINE_TREE_WIDGET = "spine-tree";
 const EXTENSION_MODULE_PATH = fileURLToPath(import.meta.url);
 
@@ -80,6 +87,7 @@ interface MutableSessionSlot {
   compactionHandled: boolean;
   compactionAbortCleanup: (() => void) | null;
   treeSignature: string | null;
+  samplingPrefix: unknown[] | null;
 }
 
 /** Creates a real Pi 0.84 extension factory backed by the packaged Node/WASM SDK. */
@@ -103,6 +111,7 @@ export function createPiExtension(options: CreatePiExtensionOptions = {}): Exten
       compactionHandled: false,
       compactionAbortCleanup: null,
       treeSignature: null,
+      samplingPrefix: null,
     };
     registerSpineTools(pi, slot);
     registerSpineCommands(pi, slot);
@@ -146,7 +155,7 @@ function registerSpineTools(pi: ExtensionAPI, slot: MutableSessionSlot): void {
             executor: {
               async execute(task, child) {
                 try {
-                  const terminal = await executePiChild(pi, ctx, task.prompt, child);
+                  const terminal = await executePiChild(pi, ctx, slot, tasks, task, child);
                   applySpawnTerminal(view, child.ordinal, {
                     ordinal: child.ordinal,
                     outcome: terminal.outcome,
@@ -235,6 +244,17 @@ function loadCanonicalSpineTools(): Array<{
   }
 }
 
+function childActiveTools(pi: ExtensionAPI): string[] {
+  return [
+    ...pi.getActiveTools().filter((name) => name !== CHILD_RETURN_TOOL),
+    CHILD_RETURN_TOOL,
+  ];
+}
+
+function childToolAllowlist(pi: ExtensionAPI): string[] {
+  return [...new Set([...pi.getActiveTools(), CHILD_RETURN_TOOL].filter((name) => name.trim().length > 0))];
+}
+
 function registerChildReturnTool(pi: ExtensionAPI): void {
   pi.registerTool({
     name: CHILD_RETURN_TOOL,
@@ -275,8 +295,7 @@ function registerLifecycleHandlers(
     childMode = pi.getFlag(CHILD_FLAG) === true;
     if (childMode) {
       registerChildReturnTool(pi);
-      pi.setActiveTools([CHILD_RETURN_TOOL]);
-      return;
+      pi.setActiveTools(childActiveTools(pi));
     }
     await guardHook(slot, ctx, async () => {
       slot.fault = null;
@@ -285,12 +304,12 @@ function registerLifecycleHandlers(
       slot.compactionAbortCleanup?.();
       slot.compactionAbortCleanup = null;
       slot.treeSignature = null;
+      slot.samplingPrefix = null;
       await beginSessionInitialization(slot, () => initializeSession(pi, ctx, runtimeFactory, onSessionReady));
       renderSpineTree(ctx, slot, await requireSession(slot));
     });
   });
   pi.on("session_tree", async (_event, ctx) => {
-    if (childMode) return;
     await guardHook(slot, ctx, async () => {
       slot.fault = null;
       slot.notified = false;
@@ -298,17 +317,18 @@ function registerLifecycleHandlers(
       slot.compactionAbortCleanup?.();
       slot.compactionAbortCleanup = null;
       slot.treeSignature = null;
+      slot.samplingPrefix = null;
       await beginSessionInitialization(slot, () => initializeSession(pi, ctx, runtimeFactory, onSessionReady));
       renderSpineTree(ctx, slot, await requireSession(slot));
     });
   });
   pi.on("session_shutdown", (_event, ctx) => {
-    if (childMode) return;
     slot.generation += 1;
     slot.compactionHandled = false;
     slot.compactionAbortCleanup?.();
     slot.compactionAbortCleanup = null;
     slot.treeSignature = null;
+    slot.samplingPrefix = null;
     disposeCurrent(slot);
     slot.initialization = null;
     if (ctx.mode === "tui") {
@@ -316,13 +336,11 @@ function registerLifecycleHandlers(
     }
   });
   pi.on("message_end", async (event, ctx) => {
-    if (childMode) return;
     await guardHook(slot, ctx, async () => {
       await (await requireSession(slot)).lifecycle.observeMessage(event.message as PiAgentMessage);
     });
   });
   pi.on("context", async (_event, ctx): Promise<{ messages?: ContextEvent["messages"] }> => {
-    if (childMode) return {};
     try {
       const session = await requireSession(slot);
       await session.lifecycle.previewContext();
@@ -336,20 +354,18 @@ function registerLifecycleHandlers(
     }
   });
   pi.on("before_provider_request", async (event, ctx) => {
-    if (childMode) return;
     await guardHook(slot, ctx, async () => {
+      slot.samplingPrefix = structuredClone(ctx.sessionManager.getBranch());
       await (await requireSession(slot)).lifecycle.beginSampling(event.payload);
     });
   });
   pi.on("before_agent_start", async (event) => {
-    if (childMode) return;
     const session = await requireSession(slot);
     return {
       systemPrompt: adaptSpineSystemPromptForPi(session.runtime.extendSystemPrompt(event.systemPrompt)),
     };
   });
   pi.on("tool_call", async (event, ctx) => {
-    if (childMode) return undefined;
     try {
       await (await requireSession(slot)).lifecycle.registerToolCall(
         event.toolCallId,
@@ -358,6 +374,9 @@ function registerLifecycleHandlers(
       );
       return undefined;
     } catch (cause) {
+      if (cause instanceof PiSpineToolMixError) {
+        return { block: true, reason: cause.message };
+      }
       faultAndAbort(slot, ctx, cause);
       if ((PI_SPINE_TOOL_NAMES as readonly string[]).includes(event.toolName)) {
         return { block: true, reason: "Spine lifecycle fault", terminate: true };
@@ -366,18 +385,17 @@ function registerLifecycleHandlers(
     }
   });
   pi.on("tool_result", async (event, ctx) => {
-    if (childMode) return;
     await guardHook(slot, ctx, async () => {
       await (await requireSession(slot)).lifecycle.finishToolCall(event.toolCallId, !event.isError);
     });
   });
   pi.on("turn_end", async (event, ctx) => {
-    if (childMode) return;
     await guardHook(slot, ctx, async () => {
       const commit = await (await requireSession(slot)).lifecycle.finishTurn({
         message: event.message as PiAgentMessage,
         aborted: ctx.signal?.aborted === true,
       });
+      if (commit === null) return;
       await onSamplingCommit?.({ sessionId: ctx.sessionManager.getSessionId(), commit, entries: ctx.sessionManager.getBranch() });
       renderSpineTree(ctx, slot, await requireSession(slot));
     });
@@ -388,10 +406,12 @@ function registerLifecycleHandlers(
       event: SessionBeforeCompactEvent,
       ctx: ExtensionContext,
     ): Promise<{ cancel?: boolean; compaction?: CompactionResult } | undefined> => {
-    if (childMode) return undefined;
     try {
       const session = await requireSession(slot);
       const summaryResult = await summarizePiCompaction(event, ctx);
+      if (event.signal?.aborted === true) {
+        return { cancel: true };
+      }
       const retained = retainedPiMessages(event, event.willRetry);
       const replacementMessages: PiAgentMessage[] = [
         {
@@ -405,8 +425,8 @@ function registerLifecycleHandlers(
       const source = await session.lifecycle.sourceSnapshot();
       const barrier = buildCompactBarrier(source, replacementMessages.length);
       await session.lifecycle.compact(barrier, replacementMessages);
-      renderSpineTree(ctx, slot, session);
       slot.compactionHandled = true;
+      renderSpineTree(ctx, slot, session);
       const onAbort = () => {
         if (!slot.compactionHandled) return;
         slot.compactionHandled = false;
@@ -429,12 +449,14 @@ function registerLifecycleHandlers(
         compaction,
       };
     } catch (cause) {
+      if (!slot.compactionHandled && isPiCompactionHostAbort(event, cause)) {
+        return { cancel: true };
+      }
       faultAndAbort(slot, ctx, cause);
       return { cancel: true };
     }
   });
   pi.on("session_compact", (_event, ctx) => {
-    if (childMode) return;
     if (slot.compactionHandled) {
       slot.compactionHandled = false;
       slot.compactionAbortCleanup?.();
@@ -472,6 +494,9 @@ async function summarizePiCompaction(
     },
     { maxTokens: 8192, signal: event.signal, cacheRetention: "none", sessionId: randomUUID() },
   );
+  if (event.signal?.aborted === true || response.stopReason === "aborted") {
+    throw abortError("Pi compaction summarization aborted");
+  }
   const summary = response.content
     .filter((part): part is { type: "text"; text: string } => part.type === "text")
     .map((part) => part.text)
@@ -592,15 +617,29 @@ function childRuntimeFlags(ctx: ExtensionContext): string[] {
 async function executePiChild(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
-  prompt: string,
+  slot: MutableSessionSlot,
+  tasks: readonly SpawnTask[],
+  task: SpawnTask,
   child: { batchId: string; ordinal: number; signal: AbortSignal },
 ): Promise<SpawnChildTerminal> {
+  if (slot.samplingPrefix === null) {
+    throw new Error("Pi Spawn child prefix is missing; parent sampling did not start");
+  }
+  const parentSessionFile = ctx.sessionManager.getSessionFile();
+  const destPath = childSessionPath({
+    batchId: child.batchId,
+    ordinal: child.ordinal,
+    ...(parentSessionFile === undefined ? {} : { parentSessionFile }),
+  });
+  await writeChildPrefixSession({
+    cwd: ctx.cwd,
+    destPath,
+    entries: slot.samplingPrefix,
+    ...(parentSessionFile === undefined ? {} : { parentSession: parentSessionFile }),
+  });
   const invocation = piInvocation();
-  const task = [
-    prompt,
-    "",
-    `Before ending, call ${CHILD_RETURN_TOOL} exactly once with the complete continuation memory for this task.`,
-  ].join("\n");
+  const assignment = buildChildAssignment(task, tasks);
+  const tools = childToolAllowlist(pi);
   const result = await pi.exec(
     invocation.command,
     [
@@ -608,48 +647,63 @@ async function executePiChild(
       "--mode",
       "json",
       "-p",
-      "--no-session",
-      "--no-extensions",
+      "--session",
+      destPath,
       "--extension",
       EXTENSION_MODULE_PATH,
       `--${CHILD_FLAG}=true`,
+      ...(tools.length === 0 ? [] : ["--tools", tools.join(",")]),
       ...childRuntimeFlags(ctx),
-      task,
+      assignment,
     ],
     { cwd: ctx.cwd, signal: child.signal },
   );
+  const executionRef = `${child.batchId}:${child.ordinal}`;
+  const processDiagnostic = childProcessDiagnostic(result);
   let memory: string;
   try {
     memory = extractTypedChildMemory(result.stdout);
   } catch (cause) {
-    const diagnostic = result.stderr.trim() || `Pi child exited with code ${result.code}`;
-    throw new Error(
-      `${cause instanceof Error ? cause.message : String(cause)}; ${diagnostic}`.slice(0, 1200),
-      { cause },
+    const diagnostic = clipSpawnDiagnostic(
+      `${cause instanceof Error ? cause.message : String(cause)}; ${processDiagnostic}`,
     );
+    return {
+      outcome: result.killed ? "aborted" : "errored",
+      memoryBody: diagnostic,
+      diagnostic,
+      executionRef,
+    };
   }
-  const diagnostic = result.stderr.trim() || `Pi child exited with code ${result.code}`;
   if (result.killed) {
     return {
       outcome: "aborted",
       memoryBody: memory,
-      diagnostic,
-      executionRef: `${child.batchId}:${child.ordinal}`,
+      diagnostic: processDiagnostic,
+      executionRef,
     };
   }
   if (result.code !== 0) {
     return {
       outcome: "errored",
       memoryBody: memory,
-      diagnostic,
-      executionRef: `${child.batchId}:${child.ordinal}`,
+      diagnostic: processDiagnostic,
+      executionRef,
     };
   }
   return {
     outcome: "completed",
     memoryBody: memory,
-    executionRef: `${child.batchId}:${child.ordinal}`,
+    executionRef,
   };
+}
+
+function childProcessDiagnostic(result: { stderr: string; code: number }): string {
+  const stderr = result.stderr.trim();
+  return stderr.length > 0 ? stderr : `Pi child exited with code ${result.code}`;
+}
+
+function clipSpawnDiagnostic(text: string): string {
+  return text.length <= 1200 ? text : text.slice(0, 1200);
 }
 
 export function extractTypedChildMemory(stdout: string): string {
@@ -734,6 +788,20 @@ function faultAndAbort(slot: MutableSessionSlot, ctx: ExtensionContext, cause: u
     slot.notified = true;
     ctx.ui.notify("Spine faulted; current Pi operation aborted", "error");
   }
+}
+
+function isPiCompactionHostAbort(event: SessionBeforeCompactEvent, cause: unknown): boolean {
+  return event.signal?.aborted === true || isAbortError(cause);
+}
+
+function isAbortError(cause: unknown): boolean {
+  return typeof cause === "object" && cause !== null && "name" in cause && cause.name === "AbortError";
+}
+
+function abortError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
 }
 
 function disposeCurrent(slot: MutableSessionSlot): void {

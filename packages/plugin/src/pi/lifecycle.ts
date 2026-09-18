@@ -36,6 +36,18 @@ export class PiSamplingLifecycleError extends Error {
   }
 }
 
+/** Admission denial for Open/Close/Next mixed with Spawn in one sampling. Not a lifecycle fault. */
+export class PiSpineToolMixError extends Error {
+  constructor(
+    message = "spine_spawn cannot be mixed with spine_open, spine_close, or spine_next",
+  ) {
+    super(message);
+    this.name = "PiSpineToolMixError";
+  }
+}
+
+type SpineSamplingToolClass = "tree" | "spawn";
+
 /** Owns the exact one-Pi-provider-turn to one-Spine-sampling transaction mapping. */
 export class PiSamplingLifecycle {
   readonly #adapter: SpineHostAdapter;
@@ -43,6 +55,7 @@ export class PiSamplingLifecycle {
   readonly #executions = new Set<string>();
   #nextBoundary: number;
   #samplingActive = false;
+  #samplingClass: SpineSamplingToolClass | null = null;
   #fault: unknown = null;
 
   constructor(
@@ -125,6 +138,7 @@ export class PiSamplingLifecycle {
       await this.#adapter.beginSampling(providerPayloadDigest(providerPayload));
       this.#samplingActive = true;
       this.#executions.clear();
+      this.#samplingClass = null;
     });
   }
 
@@ -136,6 +150,16 @@ export class PiSamplingLifecycle {
     if (!isSpineToolName(toolName)) {
       return false;
     }
+    if (this.fault !== null) {
+      throw new PiSamplingLifecycleError("Pi Spine lifecycle is faulted", {
+        cause: this.fault,
+      });
+    }
+    const toolClass = spineToolClass(toolName);
+    if (this.#samplingClass !== null && this.#samplingClass !== toolClass) {
+      throw new PiSpineToolMixError();
+    }
+    this.#samplingClass = toolClass;
     await this.#guard(async () => {
       this.#assertSamplingActive();
       if (this.#executions.has(toolCallId)) {
@@ -180,13 +204,24 @@ export class PiSamplingLifecycle {
     return true;
   }
 
-  async finishTurn(turn: PiTurnEnd): Promise<FinishSamplingResult> {
+  async finishTurn(turn: PiTurnEnd): Promise<FinishSamplingResult | null> {
     return this.#guard(async () => {
-      this.#assertSamplingActive();
+      // Close is idempotent: Pi may emit a stray turn_end after sampling is already closed.
+      if (!this.#samplingActive) {
+        return null;
+      }
       if (this.#executions.size !== 0) {
-        throw new PiSamplingLifecycleError(
-          `Pi turn ended with unfinished Spine executions: ${[...this.#executions].join(", ")}`,
-        );
+        if (!samplingWasCancelled(turn)) {
+          throw new PiSamplingLifecycleError(
+            `Pi turn ended with unfinished Spine executions: ${[...this.#executions].join(", ")}`,
+          );
+        }
+        // Pi may skip afterToolCall on immediate abort after register. Drain like
+        // Codex ExecutionGuard Drop: fail leftover executions, then cancel sampling.
+        for (const key of [...this.#executions]) {
+          await this.#adapter.finishExecution(key, false);
+          this.#executions.delete(key);
+        }
       }
       const result = await this.#adapter.finishSampling(
         samplingTerminal(turn),
@@ -223,14 +258,6 @@ export class PiSamplingLifecycle {
       throw new PiSamplingLifecycleError(`unknown Pi Spine tool call ${toolCallId}`);
     }
   }
-}
-
-export function providerPayloadDigest(payload: unknown): string {
-  const encoded = JSON.stringify(payload);
-  if (encoded === undefined) {
-    throw new PiSamplingLifecycleError("Pi provider payload is not JSON serializable");
-  }
-  return createHash("sha256").update(encoded).digest("hex");
 }
 
 export function buildCompactBarrier(
@@ -270,6 +297,14 @@ export function buildCompactBarrier(
   return { ...unsigned, replacement_digest };
 }
 
+export function providerPayloadDigest(payload: unknown): string {
+  const encoded = JSON.stringify(payload);
+  if (encoded === undefined) {
+    throw new PiSamplingLifecycleError("Pi provider payload is not JSON serializable");
+  }
+  return createHash("sha256").update(encoded).digest("hex");
+}
+
 export function operationFromPiToolCall(
   toolName: Exclude<PiSpineToolName, "spine_spawn">,
   input: Record<string, unknown>,
@@ -287,6 +322,17 @@ export function decodeSpawnTasks(input: Record<string, unknown>): SpawnTask[] {
   } catch (cause) {
     throw new PiSamplingLifecycleError("invalid Pi Spine Spawn input", { cause });
   }
+}
+
+function spineToolClass(toolName: SpineToolName): SpineSamplingToolClass {
+  return toolName === "spine_spawn" ? "spawn" : "tree";
+}
+
+function samplingWasCancelled(turn: PiTurnEnd): boolean {
+  if (turn.aborted) {
+    return true;
+  }
+  return turn.message.role === "assistant" && turn.message.stopReason === "aborted";
 }
 
 function samplingTerminal(turn: PiTurnEnd): Terminal {

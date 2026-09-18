@@ -35,9 +35,12 @@ same entry is available explicitly as `@spinejit/spine-plugin/pi/extension`.
 It registers the four canonical tools and `/spine-tree`, and
 uses `@spinejit/spine-sdk/node` for the packaged WASM runtime.
 Before each agent run, the extension's `before_agent_start` hook extends Pi's
-assembled system prompt through the runtime's configured `SpineConfig`. This
-keeps the canonical Spine instruction in `spine-core`; the Pi adapter does not
-copy prompt text or rely on tool descriptions as a substitute for it.
+assembled system prompt through the runtime's configured `SpineConfig` and
+rewrites `spine.*` names. The adapter then inserts one sentence after the D&C
+ownership paragraph: finalize a completed branch; a user message that is a new
+obligation rather than the current one belongs at its owning level. Canonical
+instruction text otherwise remains in `spine-core`; the adapter does not copy
+the rest of the prompt or rely on tool descriptions as a substitute for it.
 In interactive Pi TUI mode it renders a folded SpineCodex-style pretty tree as an
 `aboveEditor` widget keyed by `spine-tree`, refreshed only when the display
 signature changes. `/spine-tree` prints that same pretty tree. `spine_spawn`
@@ -62,11 +65,19 @@ Session-start and session-tree recovery is generation guarded: a stale async
 replay is disposed instead of replacing the runtime selected by the latest
 session transition, and a new tree transition clears a prior lifecycle fault.
 
-Spawn children return exactly one typed `spine_child_return` tool call. Pi can
-replay a fully committed Spawn and verifies its durable per-child staging. If
-Pi crashes after staging child terminal memory but before persisting the parent
-tool result and turn commit, the extension fails closed on restart: Pi 0.84.2
-does not expose a recovery-time native tool-result finalization API.
+Spawn children inherit the parent sampling-start session prefix (`C_child =
+C_parent · Δ_child`) by resuming a forked Pi session file, then receive an
+identity/peer assignment envelope. The child process loads the same discovered
+packages/extensions as a normal Pi agent, keeps the parent's active tool
+allowlist plus typed `spine_child_return`, and can use `spine_open` /
+`spine_close` / `spine_next` / `spine_spawn`. Nested spawn is hang-until-join in
+the child process, matching SpineCodex child `spine.spawn`. Children still
+return through `spine_child_return`; missing or duplicate returns mark that
+child `errored` with a diagnostic μ and do not abort siblings. Pi can replay a
+fully committed Spawn and verifies its durable per-child staging. If Pi crashes
+after staging child terminal memory but before persisting the parent tool result
+and turn commit, the extension fails closed on restart: Pi 0.84.2 does not
+expose a recovery-time native tool-result finalization API.
 
 ## DeepSeek Harness extension
 

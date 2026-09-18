@@ -118,13 +118,42 @@ export function recoverStagedSpawnResults(
   return tasks.map((_task, ordinal) => byOrdinal.get(ordinal)!);
 }
 
+/**
+ * Semantic equality for spawn receipts.
+ * WASM serializes `Option::None` as JSON `null`; JS staging may omit the field.
+ * Recovery must not treat those encodings as drift.
+ */
+export function spawnResultsEqual(left: SpawnResult, right: SpawnResult): boolean {
+  return (
+    left.ordinal === right.ordinal &&
+    left.outcome === right.outcome &&
+    left.memory_body === right.memory_body &&
+    optionalSpawnTextEqual(left.diagnostic, right.diagnostic) &&
+    optionalSpawnTextEqual(left.execution_ref, right.execution_ref)
+  );
+}
+
+export function spawnResultListsEqual(
+  left: readonly SpawnResult[],
+  right: readonly SpawnResult[],
+): boolean {
+  return left.length === right.length && left.every((result, index) => spawnResultsEqual(result, right[index]!));
+}
+
+function optionalSpawnTextEqual(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  return (left ?? null) === (right ?? null);
+}
+
 function toSpawnResult(ordinal: number, terminal: SpawnChildTerminal): SpawnResult {
   const result: SpawnResult = {
     ordinal,
     outcome: terminal.outcome,
     memory_body: terminal.memoryBody,
-    ...(terminal.diagnostic === undefined ? {} : { diagnostic: terminal.diagnostic }),
-    ...(terminal.executionRef === undefined ? {} : { execution_ref: terminal.executionRef }),
+    diagnostic: terminal.diagnostic ?? null,
+    execution_ref: terminal.executionRef ?? null,
   };
   validateSpawnResult(result);
   return result;
