@@ -378,7 +378,7 @@ test("concrete DeepSeek Harness port appends and flushes required records and at
     owner: "spine",
     schema: "spine-plugin/deepseek-harness/v1",
     expectedGeneration: 3,
-    planDigest: "plan-digest-1",
+    planDigest: "thread-1:0:0",
     provenance: [2, 4],
     messages: [{ id: "message-1", role: "user", content: [], source: { kind: "user" } }],
     payload: {

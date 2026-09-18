@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  deepSeekHarnessRequestDigest,
   DeepSeekHarnessSamplingLifecycle,
 } from "../dist/deepseek-harness/lifecycle.js";
 import { DeepSeekHarnessSourceBindings } from "../dist/deepseek-harness/messages.js";
@@ -90,25 +89,6 @@ test("DSH successful step marker defers commit and an exceptional boundary overr
   lifecycle.enqueueSuccessfulStepEnd();
   await lifecycle.finishNow("failed");
   assert.deepEqual(log.filter(([kind]) => kind === "finish"), [["finish", "failed", undefined]]);
-});
-
-test("DSH request digest excludes only the top-level live signal", () => {
-  const left = deepSeekHarnessRequestDigest({
-    provider: "p",
-    signal: { ignored: 1 },
-    messages: [{ signal: "model-visible" }],
-  });
-  const right = deepSeekHarnessRequestDigest({
-    messages: [{ signal: "model-visible" }],
-    provider: "p",
-    signal: { ignored: 2 },
-  });
-  const changed = deepSeekHarnessRequestDigest({
-    provider: "p",
-    messages: [{ signal: "changed" }],
-  });
-  assert.equal(left, right);
-  assert.notEqual(left, changed);
 });
 
 test("loadable DSH extension registers exactly the four canonical tools", () => {

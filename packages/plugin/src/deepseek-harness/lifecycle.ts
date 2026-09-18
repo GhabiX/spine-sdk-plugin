@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 
 import type {
   SourceSnapshot,
@@ -9,6 +8,7 @@ import type {
 
 import type { SpineHostAdapter } from "../host-adapter.js";
 import {
+  decodeSpineSpawnTasks,
   isSpineToolName,
   operationFromSpineToolCall,
 } from "../tools.js";
@@ -82,13 +82,17 @@ export class DeepSeekHarnessSamplingLifecycle {
         throw new DeepSeekHarnessLifecycleError(`duplicate DSH Spine tool call ${start.callId}`);
       }
       const input = decodeToolInput(start.arguments);
+      const operation = toolName === "spine_spawn"
+        ? null
+        : operationFromSpineToolCall(toolName, input);
+      if (toolName === "spine_spawn") decodeSpineSpawnTasks(input);
       await this.#adapter.registerExecution(start.callId);
       this.#executions.add(start.callId);
-      if (toolName !== "spine_spawn") {
+      if (operation !== null) {
         await this.#adapter.stageExecution(
           start.callId,
           start.callId,
-          operationFromSpineToolCall(toolName, input),
+          operation,
         );
       }
     });
@@ -122,13 +126,13 @@ export class DeepSeekHarnessSamplingLifecycle {
     });
   }
 
-  async beginSampling(request: unknown): Promise<void> {
+  async beginSampling(_request: unknown): Promise<void> {
     await this.drain();
     await this.#serialize(async () => {
       if (this.#samplingActive) {
         throw new DeepSeekHarnessLifecycleError("DSH began a request before the prior step ended");
       }
-      await this.#adapter.beginSampling(deepSeekHarnessRequestDigest(request));
+      await this.#adapter.beginSampling();
       this.#samplingActive = true;
       this.#inputTokens = undefined;
       this.#successfulStepPending = false;
@@ -232,14 +236,6 @@ export class DeepSeekHarnessSamplingLifecycle {
   }
 }
 
-export function deepSeekHarnessRequestDigest(request: unknown): string {
-  const logical = request !== null && typeof request === "object" && !Array.isArray(request)
-    ? Object.fromEntries(Object.entries(request).filter(([key]) => key !== "signal"))
-    : request;
-  const encoded = stableJson(logical);
-  return createHash("sha256").update(encoded).digest("hex");
-}
-
 function decodeToolInput(input: unknown): Record<string, unknown> {
   let value = input;
   if (typeof input === "string") {
@@ -257,24 +253,4 @@ function decodeToolInput(input: unknown): Record<string, unknown> {
 
 function nextSourceBoundary(source: SourceSnapshot): number {
   return source.cells.reduce((next, cell) => Math.max(next, cell.boundary + 1), 0);
-}
-
-function stableJson(value: unknown): string {
-  const encoded = JSON.stringify(sortJson(value));
-  if (encoded === undefined) {
-    throw new DeepSeekHarnessLifecycleError("DSH request is not JSON serializable");
-  }
-  return encoded;
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, sortJson(item)]),
-    );
-  }
-  return value;
 }

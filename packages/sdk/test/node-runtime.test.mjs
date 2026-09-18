@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createNodeSpineRuntime } from "../dist/node.js";
+import { createNodeSpineRuntime, validateSpineToolInput } from "../dist/node.js";
+
+test("Node SDK delegates tool input admission to the pure core validator", () => {
+  assert.deepEqual(
+    validateSpineToolInput("open", { goal: " inspect " }),
+    { type: "open", summary: "inspect" },
+  );
+  assert.throws(
+    () => validateSpineToolInput("spawn", {
+      tasks: Array.from({ length: 17 }, () => ({ summary: "s", prompt: "p" })),
+    }),
+    /at most 16 tasks/,
+  );
+});
 
 test("packaged Node WASM runtime executes the portable SDK protocol", async () => {
   const runtime = createNodeSpineRuntime({

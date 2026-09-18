@@ -22,6 +22,7 @@ import { Type } from "typebox";
 
 import type { HostContextEnvelope } from "../host-adapter.js";
 import { executeSpawnBatch, type SpawnChildTerminal } from "../spawn.js";
+import { SpineToolInputError } from "../tools.js";
 import type { SpawnTask } from "@spinejit/spine-sdk";
 import {
   buildChildAssignment,
@@ -34,6 +35,7 @@ import {
   buildCompactBarrier,
   decodeSpawnTasks,
   PiSamplingLifecycle,
+  PiSamplingLifecycleError,
   PiSpineToolMixError,
   PI_SPINE_TOOL_NAMES,
 } from "./lifecycle.js";
@@ -377,6 +379,9 @@ function registerLifecycleHandlers(
       if (cause instanceof PiSpineToolMixError) {
         return { block: true, reason: cause.message };
       }
+      if (cause instanceof PiSamplingLifecycleError && cause.cause instanceof SpineToolInputError) {
+        return { block: true, reason: cause.cause.message };
+      }
       faultAndAbort(slot, ctx, cause);
       if ((PI_SPINE_TOOL_NAMES as readonly string[]).includes(event.toolName)) {
         return { block: true, reason: "Spine lifecycle fault", terminate: true };
@@ -585,7 +590,9 @@ async function initializeSession(
       throw new Error("Pi Spine recovery did not install runtime context");
     }
     const active = {
-      lifecycle: new PiSamplingLifecycle(recovered.adapter, recovered.bindings, recovered.source),
+      lifecycle: new PiSamplingLifecycle(recovered.adapter, recovered.bindings, recovered.source, {
+        contextReady: true,
+      }),
       runtime,
       latestContext,
     };

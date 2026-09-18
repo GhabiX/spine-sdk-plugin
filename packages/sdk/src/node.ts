@@ -4,6 +4,8 @@ import {
   encodeInit,
   type FeatureFlag,
   type SafeInteger,
+  type SpineOperation,
+  type SpawnTask,
   type ThreadNamespace,
 } from "./protocol.js";
 import { SpineRuntimeClient, type RuntimeTransport } from "./runtime.js";
@@ -23,7 +25,21 @@ interface WasmSpineRuntimeConstructor {
 const require = createRequire(import.meta.url);
 const binding = require("../wasm/node/spine_wasm.cjs") as {
   SpineRuntime: WasmSpineRuntimeConstructor;
+  validate_tool_input(tool: string, argumentsJson: string): string;
 };
+
+export type SpineToolInput =
+  | Exclude<SpineOperation, { type: "spawn" }>
+  | { type: "spawn"; tasks: SpawnTask[] };
+
+/** Uses core's pure input validator without creating or mutating a session. */
+export function validateSpineToolInput<T extends SpineToolInput["type"]>(
+  tool: T,
+  input: Record<string, unknown>,
+): Extract<SpineToolInput, { type: T }> {
+  return JSON.parse(binding.validate_tool_input(tool, JSON.stringify(input))) as
+    Extract<SpineToolInput, { type: T }>;
+}
 
 export interface NodeSpineRuntimeOptions {
   thread: ThreadNamespace;

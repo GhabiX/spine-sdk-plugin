@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type {
   CompactBarrier,
   SourceSnapshot,
@@ -11,6 +9,7 @@ import type {
 
 import type { SpineHostAdapter } from "../host-adapter.js";
 import type { FinishSamplingResult } from "../controller.js";
+import { validateSpawnResults } from "../spawn.js";
 import { PiSourceBindings, sourceObservation, type PiAgentMessage } from "./messages.js";
 import {
   decodeSpineSpawnTasks,
@@ -54,6 +53,9 @@ export class PiSamplingLifecycle {
   readonly #bindings: PiSourceBindings;
   readonly #executions = new Set<string>();
   #nextBoundary: number;
+  #contextVersion = 0;
+  #publishedContextVersion = -1;
+  #previewInFlight: Promise<void> | null = null;
   #samplingActive = false;
   #samplingClass: SpineSamplingToolClass | null = null;
   #fault: unknown = null;
@@ -62,10 +64,12 @@ export class PiSamplingLifecycle {
     adapter: SpineHostAdapter,
     bindings: PiSourceBindings,
     source: SourceSnapshot,
+    options: { contextReady?: boolean } = {},
   ) {
     this.#adapter = adapter;
     this.#bindings = bindings;
     this.#nextBoundary = nextSourceBoundary(source);
+    this.#publishedContextVersion = options.contextReady === true ? 0 : -1;
   }
 
   get fault(): unknown {
@@ -84,11 +88,35 @@ export class PiSamplingLifecycle {
       }
       this.#bindings.bind(sourceId, observation.message);
       this.#nextBoundary += 1;
+      this.#contextVersion += 1;
     });
   }
 
   async previewContext(): Promise<void> {
-    await this.#guard(() => this.#adapter.previewAndPublish().then(() => undefined));
+    if (this.#contextVersion === this.#publishedContextVersion) return;
+    if (this.#previewInFlight !== null) {
+      await this.#previewInFlight;
+      if (this.#contextVersion !== this.#publishedContextVersion) {
+        await this.previewContext();
+      }
+      return;
+    }
+    const targetVersion = this.#contextVersion;
+    const pending = this.#guard(async () => {
+      await this.#adapter.previewAndPublish();
+      if (this.#contextVersion === targetVersion) {
+        this.#publishedContextVersion = targetVersion;
+      }
+    });
+    this.#previewInFlight = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.#previewInFlight === pending) this.#previewInFlight = null;
+    }
+    if (this.#contextVersion !== this.#publishedContextVersion) {
+      await this.previewContext();
+    }
   }
 
   async sourceSnapshot(): Promise<SourceSnapshot> {
@@ -105,6 +133,7 @@ export class PiSamplingLifecycle {
           "Pi compact replacement messages do not match replacement boundaries",
         );
       }
+      const targetVersion = ++this.#contextVersion;
       await this.#adapter.compact(barrier, {
         publish: false,
         metadata: replacementMessages,
@@ -127,6 +156,9 @@ export class PiSamplingLifecycle {
       }
       this.#nextBoundary = nextSourceBoundary(source);
       await this.#adapter.previewAndPublish();
+      if (this.#contextVersion === targetVersion) {
+        this.#publishedContextVersion = targetVersion;
+      }
     });
   }
 
@@ -155,6 +187,12 @@ export class PiSamplingLifecycle {
         cause: this.fault,
       });
     }
+    const operation = toolName === "spine_spawn"
+      ? null
+      : operationFromPiToolCall(toolName, input);
+    if (toolName === "spine_spawn") {
+      decodeSpawnTasks(input);
+    }
     const toolClass = spineToolClass(toolName);
     if (this.#samplingClass !== null && this.#samplingClass !== toolClass) {
       throw new PiSpineToolMixError();
@@ -167,11 +205,11 @@ export class PiSamplingLifecycle {
       }
       await this.#adapter.registerExecution(toolCallId);
       this.#executions.add(toolCallId);
-      if (toolName !== "spine_spawn") {
+      if (operation !== null) {
         await this.#adapter.stageExecution(
           toolCallId,
           toolCallId,
-          operationFromSpineToolCall(toolName, input),
+          operation,
         );
       }
     });
@@ -185,6 +223,7 @@ export class PiSamplingLifecycle {
   ): Promise<void> {
     await this.#guard(async () => {
       this.#assertTrackedExecution(toolCallId);
+      validateSpawnResults(tasks, terminalResults);
       await this.#adapter.stageExecution(toolCallId, toolCallId, {
         type: "spawn",
         tasks,
@@ -223,11 +262,15 @@ export class PiSamplingLifecycle {
           this.#executions.delete(key);
         }
       }
+      const targetVersion = this.#contextVersion;
       const result = await this.#adapter.finishSampling(
         samplingTerminal(turn),
         assistantInputTokens(turn.message),
       );
       this.#samplingActive = false;
+      if (result.type === "committed" && this.#contextVersion === targetVersion) {
+        this.#publishedContextVersion = targetVersion;
+      }
       return result;
     });
   }
@@ -282,27 +325,14 @@ export function buildCompactBarrier(
   if (!Number.isSafeInteger(replacementBoundaries.at(-1))) {
     throw new PiSamplingLifecycleError("Pi compact replacement boundary is exhausted");
   }
-  const unsigned = {
+  return {
     schema: "spine.compact.barrier.v1" as const,
     thread: source.thread,
     previous_epoch: source.epoch,
     next_epoch: nextEpoch,
     boundary,
     replacement_boundaries: replacementBoundaries,
-    replacement_digest: "0".repeat(64),
   };
-  const replacement_digest = createHash("sha256")
-    .update(JSON.stringify(unsigned))
-    .digest("hex");
-  return { ...unsigned, replacement_digest };
-}
-
-export function providerPayloadDigest(payload: unknown): string {
-  const encoded = JSON.stringify(payload);
-  if (encoded === undefined) {
-    throw new PiSamplingLifecycleError("Pi provider payload is not JSON serializable");
-  }
-  return createHash("sha256").update(encoded).digest("hex");
 }
 
 export function operationFromPiToolCall(

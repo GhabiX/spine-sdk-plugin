@@ -23,3 +23,8 @@ export class SpineRuntime {
     node_prompt(): string;
     tool_catalog_json(): string;
 }
+
+/**
+ * Pure input admission; no session is needed and no execution is registered.
+ */
+export function validate_tool_input(tool: string, _arguments: string): string;

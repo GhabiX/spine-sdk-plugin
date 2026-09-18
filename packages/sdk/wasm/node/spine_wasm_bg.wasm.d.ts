@@ -7,6 +7,7 @@ export const spineruntime_extend_system_prompt: (a: number, b: number, c: number
 export const spineruntime_new: (a: number, b: number) => [number, number, number];
 export const spineruntime_node_prompt: (a: number) => [number, number];
 export const spineruntime_tool_catalog_json: (a: number) => [number, number, number, number];
+export const validate_tool_input: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

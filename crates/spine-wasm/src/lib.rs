@@ -2,6 +2,7 @@
 
 mod dto;
 mod runtime;
+mod validation;
 
 pub use dto::ABI_SCHEMA;
 pub use dto::Command;
@@ -16,12 +17,19 @@ pub use dto::SourceCharacter;
 pub use dto::Terminal;
 pub use runtime::BindingError;
 pub use runtime::PortableRuntime;
+pub use validation::validate_tool_input;
 use wasm_bindgen::prelude::*;
 
 pub const CORE_VERSION: &str = "0.5.0";
 
 pub fn linked_core_version() -> &'static str {
     CORE_VERSION
+}
+
+/// Pure input admission; no session is needed and no execution is registered.
+#[wasm_bindgen(js_name = validate_tool_input)]
+pub fn wasm_validate_tool_input(tool: &str, arguments: &str) -> Result<String, JsValue> {
+    validate_tool_input(tool, arguments).map_err(|error| JsValue::from_str(&error))
 }
 
 /// JavaScript owns only this coarse runtime object. Rust ownership-bearing

@@ -47,6 +47,19 @@ signature changes. `/spine-tree` prints that same pretty tree. `spine_spawn`
 streams per-child status on the tool row. JSON, print, and RPC modes keep the
 command/notification behavior.
 
+The context hook is also dirty-tracked. Recovery starts with the context that
+was just published; repeated Pi context hooks therefore return the installed
+projection without running another synchronous WASM preview. A new source
+message, compact replacement, or committed sampling cycle invalidates or
+refreshes that marker before the next publication. This keeps the host event
+ordering unchanged while removing redundant preview work from long sessions.
+
+Before recording an execution or starting Spawn children, the SDK calls the
+pure `spine-core` validator through the WASM binding. The plugin does not copy
+the canonical byte/count policy; it only keeps terminal-receipt checks needed
+after child work returns. Pi's own child process stdout/stderr capture remains
+owned by Pi and is outside this plugin boundary.
+
 The Pi deployment profile must load Spine as the final and exclusive context
 reducer and the exclusive compaction owner. The extension intercepts
 `session_before_compact`, asks Pi's model registry for the summary, persists a
@@ -54,7 +67,12 @@ typed compact barrier and replacement messages, then publishes the new
 projection before allowing Pi to append its acknowledgement entry. A native
 compaction entry is accepted during recovery only when paired with the durable
 Spine compact entry and marked `fromHook`; an unpaired or non-hook native
-compaction fails closed. Overflow retry removes only the final retryable
+compaction fails closed.
+Archive `durabilityId` is the persist key `archiveRecordId(record)`:
+`attempt_id.value` on `sampling_started` and `commit_id.value` on
+`sampling_commit`. `record_digest` is not the persist key; recovery accepts it
+only as same-day compatibility when that field is present and equals
+`durabilityId`. Overflow retry removes only the final retryable
 `error`/`length` assistant from replacement context. If Pi aborts compaction
 after Spine has completed, the extension faults and aborts the live session.
 Assistant responses with `stopReason: "deferred"` are rejected because the

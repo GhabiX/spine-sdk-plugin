@@ -423,7 +423,7 @@ export class SpineController {
   }
 }
 
-function archiveRecordId(record: SamplingArchiveRecord): string {
+export function archiveRecordId(record: SamplingArchiveRecord): string {
   if (record.type === "sampling_commit") {
     return record.record.commit_id.value;
   }

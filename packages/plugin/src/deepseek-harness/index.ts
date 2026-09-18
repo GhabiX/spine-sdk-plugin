@@ -146,16 +146,16 @@ export function createDeepSeekHarnessSessionPort<TMessage>(
     },
     materializeContext: (context) => options.materializeContext(context),
     publishAtomicSurface: async (context) => {
-      const planDigest = context.contextPlan?.plan_digest;
-      if (planDigest === undefined) {
-        if (context.messages.length === 0 && options.session.surface.nodes.length === 0) return;
-        throw new Error("DeepSeek Harness cannot publish a Spine context without a ContextPlan digest");
+      if (context.contextPlan === null && context.messages.length === 0 && options.session.surface.nodes.length === 0) {
+        return;
       }
       options.session.append(DEEPSEEK_HARNESS_SURFACE_EVENT, {
         owner: DEEPSEEK_HARNESS_EVENT_OWNER,
         schema: DEEPSEEK_HARNESS_ADAPTER_ID,
         expectedGeneration: options.session.surface.replaceGeneration,
-        planDigest,
+        planDigest: context.contextPlan === null
+          ? "spine.context.plan"
+          : `${context.contextPlan.thread}:${context.contextPlan.epoch}:${context.contextPlan.cells.length}`,
         provenance: [...options.session.surface.nodes],
         messages: [...context.messages],
         payload: assertJsonValue(context),
@@ -295,9 +295,6 @@ function decodeArchiveEvent(data: JsonValue): void {
   }
   const record = data.record.record;
   if (
-    typeof record.record_digest !== "string" ||
-    record.record_digest.length === 0 ||
-    record.record_digest !== data.durabilityId ||
     !isRecord(record.attempt_id) ||
     typeof record.attempt_id.thread !== "string" ||
     record.attempt_id.thread.length === 0
@@ -318,9 +315,7 @@ function assertSamplingStarted(record: Record<string, unknown>): void {
     !isNonNegativeInteger(record.epoch) ||
     !isEpochOrdinalId(record.pre_boundary) ||
     !isNamespacedId(record.attempt_id) ||
-    !isNullableNamespacedId(record.previous_commit_id) ||
-    !isNonEmptyString(record.prompt_digest) ||
-    !isNonEmptyString(record.source_digest)
+    !isNullableNamespacedId(record.previous_commit_id)
   ) {
     throw new Error("malformed Spine sampling-started record");
   }
@@ -330,15 +325,13 @@ function assertSamplingCommit(record: Record<string, unknown>): void {
   if (
     record.schema !== "spine.sampling.commit" ||
     !isNamespacedId(record.attempt_id) ||
-    !isNonEmptyString(record.started_record_digest) ||
     !isNamespacedId(record.commit_id) ||
     !isNonNegativeInteger(record.epoch) ||
     !(record.previous_pre_boundary === null || isEpochOrdinalId(record.previous_pre_boundary)) ||
     !isEpochOrdinalId(record.pre_boundary) ||
     !isEpochOrdinalId(record.post_boundary) ||
     !isNullableNamespacedId(record.previous_commit_id) ||
-    !Array.isArray(record.executions) ||
-    !isNonEmptyString(record.source_digest)
+    !Array.isArray(record.executions)
   ) {
     throw new Error("malformed Spine sampling-commit record");
   }

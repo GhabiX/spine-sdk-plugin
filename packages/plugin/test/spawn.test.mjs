@@ -45,6 +45,29 @@ test("spawn returns task order and durably stages each terminal result", async (
   assert.deepEqual(staged.map(([, result]) => result.diagnostic).sort(), [null, null]);
 });
 
+test("spawn rejects over-limit batches before starting child work", async () => {
+  let executed = 0;
+  const tooMany = Array.from({ length: 17 }, (_, ordinal) => ({
+    summary: `task-${ordinal}`,
+    prompt: "bounded assignment",
+  }));
+  await assert.rejects(
+    executeSpawnBatch({
+      batchId: "batch-too-many",
+      tasks: tooMany,
+      executor: {
+        async execute() {
+          executed += 1;
+          return { outcome: "completed", memoryBody: "should not run" };
+        },
+      },
+      staging: { async persistTerminal() {} },
+    }),
+    /at most 16 tasks/,
+  );
+  assert.equal(executed, 0);
+});
+
 test("spawn aborts siblings and rejects the whole batch without invented memory", async () => {
   let siblingAborted = false;
   const execution = executeSpawnBatch({
@@ -103,6 +126,24 @@ test("spawn rejects structurally invalid terminal results before staging", async
       executor: {
         async execute() {
           return { outcome: "errored", memoryBody: "bounded failure memory" };
+        },
+      },
+      staging: { async persistTerminal() { persisted = true; } },
+    }),
+    SpawnBatchExecutionError,
+  );
+  assert.equal(persisted, false);
+});
+
+test("spawn rejects a terminal memory that exceeds the core byte limit", async () => {
+  let persisted = false;
+  await assert.rejects(
+    executeSpawnBatch({
+      batchId: "batch-large-memory",
+      tasks,
+      executor: {
+        async execute() {
+          return { outcome: "completed", memoryBody: "m".repeat(32 * 1024 + 1) };
         },
       },
       staging: { async persistTerminal() { persisted = true; } },

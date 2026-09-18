@@ -1,4 +1,11 @@
 import type { SpawnResult, SpawnTask } from "@spinejit/spine-sdk";
+import { decodeSpineSpawnTasks } from "./tools.js";
+
+// Terminal receipt guards run before durable per-child staging. Input admission
+// is owned by the core validator through decodeSpineSpawnTasks.
+const SPINE_MAX_MEMORY_BYTES = 32 * 1024;
+const SPINE_MAX_SUMMARY_BYTES = 4 * 1024;
+const SPINE_MAX_SPAWN_BATCH_BYTES = 64 * 1024;
 
 export interface SpawnChildContext {
   batchId: string;
@@ -56,6 +63,7 @@ export class SpawnRecoveryError extends Error {
 export async function executeSpawnBatch(
   options: ExecuteSpawnBatchOptions,
 ): Promise<SpawnResult[]> {
+  decodeSpineSpawnTasks({ tasks: options.tasks });
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort(options.signal?.reason);
   if (options.signal?.aborted === true) {
@@ -65,6 +73,7 @@ export async function executeSpawnBatch(
   }
 
   try {
+    let resultAggregateBytes = 0;
     const executions = options.tasks.map(async (task, ordinal) => {
       try {
         const terminal = await options.executor.execute(task, {
@@ -73,6 +82,10 @@ export async function executeSpawnBatch(
           signal: controller.signal,
         });
         const result = toSpawnResult(ordinal, terminal);
+        resultAggregateBytes += spawnResultByteSize(result);
+        if (resultAggregateBytes > SPINE_MAX_SPAWN_BATCH_BYTES) {
+          throw new Error(`spawn result payload exceeds ${SPINE_MAX_SPAWN_BATCH_BYTES} bytes`);
+        }
         await options.staging.persistTerminal(options.batchId, result);
         return result;
       } catch (cause) {
@@ -87,7 +100,9 @@ export async function executeSpawnBatch(
     if (failed !== undefined) {
       throw failed.reason;
     }
-    return settled.map((result) => (result as PromiseFulfilledResult<SpawnResult>).value);
+    const results = settled.map((result) => (result as PromiseFulfilledResult<SpawnResult>).value);
+    validateSpawnResults(options.tasks, results);
+    return results;
   } finally {
     options.signal?.removeEventListener("abort", abortFromCaller);
   }
@@ -98,6 +113,7 @@ export function recoverStagedSpawnResults(
   tasks: readonly SpawnTask[],
   staged: readonly SpawnResult[],
 ): SpawnResult[] {
+  decodeSpineSpawnTasks({ tasks });
   const byOrdinal = new Map<number, SpawnResult>();
   for (const result of staged) {
     if (!Number.isSafeInteger(result.ordinal) || result.ordinal < 0 || result.ordinal >= tasks.length) {
@@ -115,7 +131,49 @@ export function recoverStagedSpawnResults(
       `spawn staging is incomplete: found ${byOrdinal.size} of ${tasks.length} terminal results`,
     );
   }
-  return tasks.map((_task, ordinal) => byOrdinal.get(ordinal)!);
+  const results = tasks.map((_task, ordinal) => byOrdinal.get(ordinal)!);
+  validateSpawnResults(tasks, results);
+  return results;
+}
+
+/** Validates the complete task and receipt shape before controller staging. */
+export function validateSpawnResults(
+  tasks: readonly SpawnTask[],
+  results: readonly SpawnResult[],
+): void {
+  decodeSpineSpawnTasks({ tasks });
+  if (results.length !== tasks.length) {
+    throw new Error(
+      `spawn result count ${results.length} does not match task count ${tasks.length}`,
+    );
+  }
+  let aggregateBytes = 0;
+  for (const [expected, result] of results.entries()) {
+    if (result.ordinal !== expected) {
+      throw new Error(
+        `spawn result ordinal ${result.ordinal} does not match expected ${expected}`,
+      );
+    }
+    validateSpawnResult(result);
+    aggregateBytes += spawnResultByteSize(result);
+  }
+  if (aggregateBytes > SPINE_MAX_SPAWN_BATCH_BYTES) {
+    throw new Error(
+      `spawn result payload exceeds ${SPINE_MAX_SPAWN_BATCH_BYTES} bytes`,
+    );
+  }
+}
+
+function spawnResultByteSize(result: SpawnResult): number {
+  return (
+    utf8ByteLength(result.memory_body) +
+    (result.diagnostic === undefined || result.diagnostic === null
+      ? 0
+      : utf8ByteLength(result.diagnostic)) +
+    (result.execution_ref === undefined || result.execution_ref === null
+      ? 0
+      : utf8ByteLength(result.execution_ref))
+  );
 }
 
 /**
@@ -163,6 +221,9 @@ function validateSpawnResult(result: SpawnResult): void {
   if (result.memory_body.trim().length === 0) {
     throw new Error("spawn child terminal memory must not be empty");
   }
+  if (utf8ByteLength(result.memory_body) > SPINE_MAX_MEMORY_BYTES) {
+    throw new Error(`spawn child terminal memory exceeds ${SPINE_MAX_MEMORY_BYTES} bytes`);
+  }
   if (
     result.outcome !== "completed" &&
     (result.diagnostic === undefined ||
@@ -174,7 +235,25 @@ function validateSpawnResult(result: SpawnResult): void {
   if (result.diagnostic !== undefined && result.diagnostic !== null && result.diagnostic.trim().length === 0) {
     throw new Error("spawn child terminal diagnostic must not be empty");
   }
+  if (
+    result.diagnostic !== undefined &&
+    result.diagnostic !== null &&
+    utf8ByteLength(result.diagnostic) > SPINE_MAX_SUMMARY_BYTES
+  ) {
+    throw new Error(`spawn child terminal diagnostic exceeds ${SPINE_MAX_SUMMARY_BYTES} bytes`);
+  }
   if (result.execution_ref !== undefined && result.execution_ref !== null && result.execution_ref.trim().length === 0) {
     throw new Error("spawn child execution reference must not be empty");
   }
+  if (
+    result.execution_ref !== undefined &&
+    result.execution_ref !== null &&
+    utf8ByteLength(result.execution_ref) > SPINE_MAX_SUMMARY_BYTES
+  ) {
+    throw new Error(`spawn child execution reference exceeds ${SPINE_MAX_SUMMARY_BYTES} bytes`);
+  }
+}
+
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }

@@ -6,6 +6,7 @@ import type {
   SpineRuntimeClient,
 } from "@spinejit/spine-sdk";
 
+import { archiveRecordId } from "../controller.js";
 import type { SpineHostAdapter } from "../host-adapter.js";
 import { recoverStagedSpawnResults, spawnResultListsEqual } from "../spawn.js";
 import { PiSourceBindings, sourceObservation, type PiAgentMessage } from "./messages.js";
@@ -229,16 +230,36 @@ function decodeArchiveEntry(value: unknown): PiSpineArchiveEntry {
   ) {
     throw new PiSessionRecoveryError("Pi Spine archive has an unknown record type");
   }
-  const record = value.record.record;
+  const inner = value.record.record;
   if (
-    !isRecord(record.attempt_id) ||
-    typeof record.attempt_id.thread !== "string" ||
-    typeof record.record_digest !== "string" ||
-    value.durabilityId !== record.record_digest
+    !isRecord(inner.attempt_id) ||
+    typeof inner.attempt_id.thread !== "string" ||
+    typeof inner.attempt_id.value !== "string" ||
+    inner.attempt_id.value.length === 0
   ) {
     throw new PiSessionRecoveryError("Pi Spine archive identity is inconsistent");
   }
+  if (value.record.type === "sampling_commit") {
+    if (
+      !isRecord(inner.commit_id) ||
+      typeof inner.commit_id.value !== "string" ||
+      inner.commit_id.value.length === 0
+    ) {
+      throw new PiSessionRecoveryError("Pi Spine archive identity is inconsistent");
+    }
+  }
+  const record = value.record as SamplingArchiveRecord;
+  if (!archiveIdentityMatches(value.durabilityId, record)) {
+    throw new PiSessionRecoveryError("Pi Spine archive identity is inconsistent");
+  }
   return value as unknown as PiSpineArchiveEntry;
+}
+
+function archiveIdentityMatches(
+  durabilityId: string,
+  record: SamplingArchiveRecord,
+): boolean {
+  return durabilityId === archiveRecordId(record);
 }
 
 function decodeSpawnTerminalEntry(value: unknown): PiSpawnTerminalEntry {

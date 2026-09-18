@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { createNodeSpineRuntime } from "@spinejit/spine-sdk/node";
 
+import { archiveRecordId } from "../dist/index.js";
 import {
   buildPiReplayPlan,
   buildCompactBarrier,
@@ -30,9 +31,6 @@ const STARTED = {
     epoch: 0,
     pre_boundary: { thread: "origin-session", epoch: 0, ordinal: 1 },
     previous_commit_id: null,
-    prompt_digest: "prompt",
-    source_digest: "source-1",
-    record_digest: "started-1",
   },
 };
 
@@ -41,7 +39,6 @@ const COMMIT = {
   record: {
     schema: "spine.sampling.commit",
     attempt_id: { thread: "origin-session", value: "attempt-0" },
-    started_record_digest: "started-1",
     commit_id: { thread: "origin-session", value: "commit-0" },
     epoch: 0,
     previous_pre_boundary: null,
@@ -49,18 +46,16 @@ const COMMIT = {
     post_boundary: { thread: "origin-session", epoch: 0, ordinal: 2 },
     previous_commit_id: null,
     executions: [],
-    source_digest: "source-2",
-    record_digest: "commit-1",
   },
 };
 
-function archive(record) {
+function archive(record, durabilityId = archiveRecordId(record)) {
   return {
     type: "custom",
     customType: PI_ARCHIVE_ENTRY_TYPE,
     data: {
       schema: PI_ADAPTER_ID,
-      durabilityId: record.record.record_digest,
+      durabilityId,
       record,
     },
   };
@@ -119,6 +114,70 @@ test("Pi replay rejects native compaction and malformed archive identity", () =>
   const invalid = archive(STARTED);
   invalid.data.durabilityId = "different";
   assert.throws(() => build([invalid]), PiSessionRecoveryError);
+});
+
+test("Pi replay accepts live archive identity from attempt and commit ids without record_digest", () => {
+  const plan = buildPiReplayPlan({
+    currentSessionId: "origin-session",
+    branch: [archive(STARTED), archive(COMMIT)],
+    messagesForEntry: () => [],
+  });
+  assert.deepEqual(
+    plan.inputs.map((item) => [item.type, item.record.type, item.record.record.attempt_id.value]),
+    [
+      ["archive", "sampling_started", "attempt-0"],
+      ["archive", "sampling_commit", "attempt-0"],
+    ],
+  );
+  assert.equal(plan.inputs[1].record.record.commit_id.value, "commit-0");
+  assert.equal("record_digest" in STARTED.record, false);
+  assert.equal("record_digest" in COMMIT.record, false);
+});
+
+test("Pi replay accepts a trailing sampling_started record without a later commit", () => {
+  const plan = buildPiReplayPlan({
+    currentSessionId: "origin-session",
+    branch: [
+      { type: "message", messages: [{ role: "user", content: "request", timestamp: 1 }] },
+      archive(STARTED),
+    ],
+    messagesForEntry: (entry) => entry.messages ?? [],
+  });
+  assert.deepEqual(plan.inputs.map(({ type }) => type), ["source", "archive"]);
+  assert.equal(plan.inputs[1].record.type, "sampling_started");
+});
+
+test("Pi replay rejects a commit whose durabilityId is the attempt id", () => {
+  assert.throws(
+    () => buildPiReplayPlan({
+      currentSessionId: "session",
+      branch: [archive(COMMIT, COMMIT.record.attempt_id.value)],
+      messagesForEntry: () => [],
+    }),
+    PiSessionRecoveryError,
+  );
+});
+
+test("Pi replay rejects digest-keyed durabilityId", () => {
+  const started = {
+    type: "sampling_started",
+    record: { ...STARTED.record, record_digest: "started-digest" },
+  };
+  const commit = {
+    type: "sampling_commit",
+    record: { ...COMMIT.record, record_digest: "commit-digest" },
+  };
+  assert.throws(
+    () => buildPiReplayPlan({
+      currentSessionId: "origin-session",
+      branch: [
+        archive(started, started.record.record_digest),
+        archive(commit, commit.record.record_digest),
+      ],
+      messagesForEntry: () => [],
+    }),
+    PiSessionRecoveryError,
+  );
 });
 
 test("Pi replay restores compact replacement bindings and resumes boundaries", () => {
@@ -314,11 +373,18 @@ test("source binding installation fails closed on a mismatched snapshot", () => 
 });
 
 test("Pi replay validates committed Spawn staging and rejects an uncommitted batch", () => {
-  const terminal = { ordinal: 0, outcome: "completed", memory_body: "child memory" };
+  const terminals = [
+    { ordinal: 0, outcome: "completed", memory_body: "child memory a" },
+    { ordinal: 1, outcome: "completed", memory_body: "child memory b" },
+  ];
   const staged = {
     type: "custom",
     customType: "spine.spawn-terminal.v1",
-    data: { schema: "spine-plugin/pi/v1", batchId: "spawn-1", result: terminal },
+    data: { schema: "spine-plugin/pi/v1", batchId: "spawn-1", result: terminals[0] },
+  };
+  const stagedSecond = {
+    ...staged,
+    data: { ...staged.data, result: terminals[1] },
   };
   const commit = archive({
     type: "sampling_commit",
@@ -334,8 +400,11 @@ test("Pi replay validates committed Spawn staging and rejects an uncommitted bat
         },
         operation: {
           type: "spawn",
-          tasks: [{ summary: "child", prompt: "work" }],
-          terminal_results: [terminal],
+          tasks: [
+            { summary: "child-a", prompt: "work a" },
+            { summary: "child-b", prompt: "work b" },
+          ],
+          terminal_results: terminals,
         },
       }],
     },
@@ -347,6 +416,7 @@ test("Pi replay validates committed Spawn staging and rejects an uncommitted bat
       { type: "message", messages: [{ role: "user", content: "request", timestamp: 1 }] },
       archive(STARTED),
       staged,
+      stagedSecond,
       commit,
     ],
     messagesForEntry: (entry) => entry.messages ?? [],
@@ -427,8 +497,10 @@ test("Pi replay still rejects Spawn staging whose memory disagrees with the comm
         { type: "message", messages: [{ role: "user", content: "request", timestamp: 1 }] },
         archive(STARTED),
         spawnStaging({ ordinal: 0, outcome: "completed", memory_body: "ALPHA", execution_ref: "spawn-1:0" }),
+        spawnStaging({ ordinal: 1, outcome: "completed", memory_body: "KEEP", execution_ref: "spawn-1:1" }),
         spawnCommit([
           { ordinal: 0, outcome: "completed", memory_body: "BETA", diagnostic: null, execution_ref: "spawn-1:0" },
+          { ordinal: 1, outcome: "completed", memory_body: "KEEP", diagnostic: null, execution_ref: "spawn-1:1" },
         ]),
       ],
       messagesForEntry: (entry) => entry.messages ?? [],

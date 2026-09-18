@@ -192,7 +192,11 @@ function decodeArchive(value: unknown): DeepSeekHarnessArchiveEvent {
   ) {
     throw new DeepSeekHarnessRecoveryError("DSH Spine archive type is unknown");
   }
-  if (archive.durabilityId !== record.record_digest) {
+  if (
+    !isRecord(record.attempt_id) ||
+    typeof record.attempt_id.thread !== "string" ||
+    record.attempt_id.thread.length === 0
+  ) {
     throw new DeepSeekHarnessRecoveryError("DSH Spine archive identity is inconsistent");
   }
   return archive;
