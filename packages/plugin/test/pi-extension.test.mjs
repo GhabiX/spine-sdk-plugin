@@ -229,13 +229,17 @@ test("before_agent_start installs the canonical Spine instruction", async () => 
     features: ["jit", "spawn"],
   });
   try {
-    const { rewriteSpineToolNamesForPi } = await import("../dist/pi/prompt.js");
+    const { adaptSpineSystemPromptForPi } = await import("../dist/pi/prompt.js");
     assert.equal(
       result.systemPrompt,
-      rewriteSpineToolNamesForPi(expectedRuntime.extendSystemPrompt("base system prompt")),
+      adaptSpineSystemPromptForPi(expectedRuntime.extendSystemPrompt("base system prompt")),
     );
     assert.match(result.systemPrompt, /spine_open/);
     assert.doesNotMatch(result.systemPrompt, /spine\.open/);
+    assert.match(
+      result.systemPrompt,
+      /Finalize a SpineBranch when its owned obligation is complete/,
+    );
   } finally {
     expectedRuntime.dispose();
   }

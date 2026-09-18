@@ -30,7 +30,7 @@ import {
   PI_SPINE_TOOL_NAMES,
 } from "./lifecycle.js";
 import { materializePiContext, type PiAgentMessage } from "./messages.js";
-import { rewriteSpineToolNamesForPi } from "./prompt.js";
+import { adaptSpineSystemPromptForPi, rewriteSpineToolNamesForPi } from "./prompt.js";
 import { resolvePiInvocation } from "./invocation.js";
 import {
   displayTreeSignature,
@@ -345,7 +345,7 @@ function registerLifecycleHandlers(
     if (childMode) return;
     const session = await requireSession(slot);
     return {
-      systemPrompt: rewriteSpineToolNamesForPi(session.runtime.extendSystemPrompt(event.systemPrompt)),
+      systemPrompt: adaptSpineSystemPromptForPi(session.runtime.extendSystemPrompt(event.systemPrompt)),
     };
   });
   pi.on("tool_call", async (event, ctx) => {
