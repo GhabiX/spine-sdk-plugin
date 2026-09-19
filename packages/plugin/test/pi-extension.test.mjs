@@ -4,7 +4,9 @@ import test from "node:test";
 
 import extension, {
   createPiExtension,
+  createPiSpinePlugin,
   extractTypedChildMemory,
+  SPINE_CANONICAL_PLUGIN_MANIFEST,
 } from "../dist/pi/extension.js";
 import { createNodeSpineRuntime } from "@spinejit/spine-sdk/node";
 import { resolvePiInvocation } from "../dist/pi/invocation.js";
@@ -219,6 +221,20 @@ test("default export is a loadable Pi extension with the canonical tools", () =>
   assert.ok(pi.handlers.has("context"));
   assert.ok(pi.handlers.has("before_agent_start"));
   assert.ok(pi.handlers.has("session_before_compact"));
+});
+
+test("canonical Pi extension is also a SpineHost owner plugin", async () => {
+  const pi = mockPi();
+  const plugin = createPiSpinePlugin({ pi: pi.api });
+
+  assert.deepEqual(plugin.manifest, SPINE_CANONICAL_PLUGIN_MANIFEST);
+  await plugin.activate({});
+  assert.deepEqual(
+    [...pi.tools.keys()].sort(),
+    ["spine_close", "spine_next", "spine_open", "spine_spawn"],
+  );
+  assert.ok(pi.handlers.has("context"));
+  assert.ok(pi.handlers.has("before_provider_request"));
 });
 
 test("before_agent_start installs the canonical Spine instruction", async () => {

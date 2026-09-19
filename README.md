@@ -18,8 +18,14 @@ current `spine-core` implementation remains in SpineCodex and is identified by
 
 - `crates/spine-wasm`: stateful, coarse Rust/WASM transaction binding.
 - `packages/sdk`: `@spinejit/spine-sdk`, versioned DTOs and the ESM runtime.
+- `packages/host`: `@spinejit/spine-host`, the minimal Pi Plugin Host contract
+  for ownership, dependency order, namespaces, lifecycle, immutable event
+  observation, private storage, and session requests.
 - `packages/plugin`: `@spinejit/spine-plugin`, shared controller plus `./pi`
   and `./deepseek-harness` entrypoints.
+- `packages/spinetree-plugin`: `@spinetree/plugin`, an ordinary Pi project
+  coordination plugin skeleton. It owns only the `spinetree` namespaces and
+  does not replace the canonical Spine context or sampling owner.
 - `fixtures/conformance`: host-neutral semantic traces.
 - `tests`: native/WASM, recovery, and cross-host equivalence gates.
 
@@ -27,6 +33,18 @@ Pi and DeepSeek Harness history identifiers are transport metadata. They never
 become Spine scope parents. Host adapters map typed evidence, persistence,
 context publication, lifecycle, and child execution; they do not reduce Spine
 state.
+
+## Pi Plugin Host contract
+
+Pi remains the outer host. `@spinejit/spine-host` is a thin contract inside
+that host, not another process or runtime. `@spinejit/spine-plugin` is the
+single `spine.canonical` owner for Scope transitions, sampling, projection,
+compaction, recovery, and Spawn. `@spinetree/plugin` is an ordinary contributor
+that currently exposes contract-only `spinetree_*` tools and a namespaced
+status command. The host rejects duplicate owner slots and namespaces, gives
+each plugin private storage, and orders activation by manifest dependencies.
+The current contract only implements owner claims; event observation and
+session requests are host services, not separate capability kinds.
 
 ## Pi extension
 
@@ -94,7 +112,7 @@ return through `spine_child_return`; missing or duplicate returns mark that
 child `errored` with a diagnostic μ and do not abort siblings. Pi can replay a
 fully committed Spawn and verifies its durable per-child staging. If Pi crashes
 after staging child terminal memory but before persisting the parent tool result
-and turn commit, the extension fails closed on restart: Pi 0.84.2 does not
+and turn commit, the extension fails closed on restart: Pi currently does not
 expose a recovery-time native tool-result finalization API.
 
 ## DeepSeek Harness extension

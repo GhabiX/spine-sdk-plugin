@@ -13,6 +13,7 @@ import {
   type SessionBeforeCompactEvent,
   type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
+import type { PluginManifest, SpinePlugin } from "@spinejit/spine-host";
 import {
   createNodeSpineRuntime,
   type NodeSpineRuntime,
@@ -74,6 +75,19 @@ export interface CreatePiExtensionOptions {
   onSamplingCommit?: (info: { sessionId: string; commit: FinishSamplingResult; entries: readonly SessionEntry[] }) => Promise<void> | void;
 }
 
+export const SPINE_CANONICAL_PLUGIN_MANIFEST: PluginManifest = {
+  schema: "spine-host/v1",
+  id: "@spinejit/spine-plugin",
+  version: "0.1.0",
+  owns: ["spine.canonical"],
+  toolNamespace: "spine",
+  commandNamespace: "spine",
+};
+
+export interface CreatePiSpinePluginOptions extends CreatePiExtensionOptions {
+  pi: ExtensionAPI;
+}
+
 interface ActivePiSession {
   lifecycle: PiSamplingLifecycle;
   runtime: NodeSpineRuntime;
@@ -92,36 +106,47 @@ interface MutableSessionSlot {
   samplingPrefix: unknown[] | null;
 }
 
-/** Creates a real Pi 0.84 extension factory backed by the packaged Node/WASM SDK. */
+/** Creates a real Pi extension factory backed by the packaged Node/WASM SDK. */
 export function createPiExtension(options: CreatePiExtensionOptions = {}): ExtensionFactory {
-  const runtimeFactory = options.runtimeFactory ?? {
-    create: (thread: string) => createNodeSpineRuntime({ thread, features: ["jit", "spawn"] }),
-  };
+  return (pi) => activatePiExtension(pi, options);
+}
 
-  return (pi) => {
-    pi.registerFlag(CHILD_FLAG, {
-      description: "Run as a typed Spine Spawn child",
-      type: "boolean",
-      default: false,
-    });
-    const slot: MutableSessionSlot = {
-      current: null,
-      initialization: null,
-      generation: 0,
-      fault: null,
-      notified: false,
-      compactionHandled: false,
-      compactionAbortCleanup: null,
-      treeSignature: null,
-      samplingPrefix: null,
-    };
-    registerSpineTools(pi, slot);
-    registerSpineCommands(pi, slot);
-    registerLifecycleHandlers(pi, slot, runtimeFactory, options.onSessionReady, options.onSamplingCommit);
+export function createPiSpinePlugin(options: CreatePiSpinePluginOptions): SpinePlugin {
+  return {
+    manifest: SPINE_CANONICAL_PLUGIN_MANIFEST,
+    activate() {
+      activatePiExtension(options.pi, options);
+    },
   };
 }
 
 export default createPiExtension();
+
+function activatePiExtension(pi: ExtensionAPI, options: CreatePiExtensionOptions): void {
+  const runtimeFactory = options.runtimeFactory ?? {
+    create: (thread: string) => createNodeSpineRuntime({ thread, features: ["jit", "spawn"] }),
+  };
+
+  pi.registerFlag(CHILD_FLAG, {
+    description: "Run as a typed Spine Spawn child",
+    type: "boolean",
+    default: false,
+  });
+  const slot: MutableSessionSlot = {
+    current: null,
+    initialization: null,
+    generation: 0,
+    fault: null,
+    notified: false,
+    compactionHandled: false,
+    compactionAbortCleanup: null,
+    treeSignature: null,
+    samplingPrefix: null,
+  };
+  registerSpineTools(pi, slot);
+  registerSpineCommands(pi, slot);
+  registerLifecycleHandlers(pi, slot, runtimeFactory, options.onSessionReady, options.onSamplingCommit);
+}
 
 function registerSpineTools(pi: ExtensionAPI, slot: MutableSessionSlot): void {
   for (const tool of loadCanonicalSpineTools()) {
