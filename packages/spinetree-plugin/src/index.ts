@@ -81,9 +81,15 @@ export interface SpineTreeAgentBinding {
   readonly status: "running" | "paused" | "ended";
 }
 
+export type SpineTreeAgentStatus = SpineTreeAgentBinding["status"];
+
 export interface SpineTreeAgentRegistry {
   register(binding: SpineTreeAgentBinding): void | Promise<void>;
   resolve(agentId: string): SpineTreeAgentBinding | undefined | Promise<SpineTreeAgentBinding | undefined>;
+}
+
+export interface SpineTreeAgentLifecycleRegistry extends SpineTreeAgentRegistry {
+  transition(agentId: string, status: SpineTreeAgentStatus): SpineTreeAgentBinding | Promise<SpineTreeAgentBinding>;
 }
 
 export interface SpineTreeAgentRegistryReader {
@@ -94,7 +100,7 @@ export interface SpineTreeExclusiveAgentRegistry {
   registerExclusive(binding: SpineTreeAgentBinding): void | Promise<void>;
 }
 
-export class MemoryAgentRegistry implements SpineTreeAgentRegistry, SpineTreeAgentRegistryReader, SpineTreeExclusiveAgentRegistry {
+export class MemoryAgentRegistry implements SpineTreeAgentLifecycleRegistry, SpineTreeAgentRegistryReader, SpineTreeExclusiveAgentRegistry {
   readonly #bindings = new Map<string, SpineTreeAgentBinding>();
 
   register(binding: SpineTreeAgentBinding): void {
@@ -108,6 +114,14 @@ export class MemoryAgentRegistry implements SpineTreeAgentRegistry, SpineTreeAge
   resolve(agentId: string): SpineTreeAgentBinding | undefined {
     const binding = this.#bindings.get(agentId);
     return binding === undefined ? undefined : clone(binding);
+  }
+
+  transition(agentId: string, status: SpineTreeAgentStatus): SpineTreeAgentBinding {
+    const binding = this.#bindings.get(agentId);
+    if (binding === undefined) throw new SpineTreeRegistryError("unknown-agent", `Unknown Agent ${agentId}`);
+    const next = transitionBinding(binding, status);
+    this.#bindings.set(agentId, next);
+    return clone(next);
   }
 
   list(branch?: string): readonly SpineTreeAgentBinding[] {
@@ -129,7 +143,7 @@ export class MemoryAgentRegistry implements SpineTreeAgentRegistry, SpineTreeAge
 }
 
 /** A registry persisted in the same immutable snapshot/HEAD as the tree. */
-export class GitSpineTreeAgentRegistry implements SpineTreeAgentRegistry, SpineTreeAgentRegistryReader, SpineTreeExclusiveAgentRegistry {
+export class GitSpineTreeAgentRegistry implements SpineTreeAgentLifecycleRegistry, SpineTreeAgentRegistryReader, SpineTreeExclusiveAgentRegistry {
   readonly store: SpineTreeSnapshotCommitStore;
   readonly #maxCasRetries: number;
 
@@ -162,6 +176,24 @@ export class GitSpineTreeAgentRegistry implements SpineTreeAgentRegistry, SpineT
     return binding === undefined ? undefined : clone(binding);
   }
 
+  async transition(agentId: string, status: SpineTreeAgentStatus): Promise<SpineTreeAgentBinding> {
+    validateAgentStatus(status);
+    return mutateSnapshotWithRetry(
+      this.store,
+      this.#maxCasRetries,
+      "spinetree: registry status transition",
+      snapshot => {
+        const registry = { ...(snapshot.registry ?? {}) };
+        const binding = registry[agentId];
+        if (binding === undefined) throw new SpineTreeRegistryError("unknown-agent", `Unknown Agent ${agentId}`);
+        const next = transitionBinding(binding, status);
+        if (next.status === binding.status) return { snapshot, value: clone(next) };
+        registry[agentId] = next;
+        return { snapshot: { ...snapshot, registry }, value: clone(next) };
+      },
+    );
+  }
+
   async list(branch?: string): Promise<readonly SpineTreeAgentBinding[]> {
     const head = await this.store.head();
     const snapshot = await this.store.readSnapshot(head);
@@ -192,7 +224,7 @@ export class GitSpineTreeAgentRegistry implements SpineTreeAgentRegistry, SpineT
 }
 
 export class SpineTreeRegistryError extends Error {
-  readonly code: "invalid-binding" | "duplicate-agent" | "branch-occupied";
+  readonly code: "invalid-binding" | "duplicate-agent" | "branch-occupied" | "unknown-agent" | "invalid-transition";
 
   constructor(code: SpineTreeRegistryError["code"], message: string) {
     super(message);
@@ -1248,6 +1280,23 @@ function validateBinding(binding: SpineTreeAgentBinding): void {
   if (binding.scope !== undefined && (typeof binding.scope !== "string" || binding.scope.length === 0)) {
     throw new SpineTreeRegistryError("invalid-binding", "Agent binding scope must be a non-empty string");
   }
+}
+
+function validateAgentStatus(status: unknown): asserts status is SpineTreeAgentStatus {
+  if (!(["running", "paused", "ended"] as readonly unknown[]).includes(status)) {
+    throw new SpineTreeRegistryError("invalid-transition", `Invalid Agent status ${String(status)}`);
+  }
+}
+
+function transitionBinding(binding: SpineTreeAgentBinding, status: SpineTreeAgentStatus): SpineTreeAgentBinding {
+  validateAgentStatus(status);
+  if (binding.status === "ended" && status !== "ended") {
+    throw new SpineTreeRegistryError(
+      "invalid-transition",
+      `Ended Agent ${binding.agentId} cannot transition to ${status}`,
+    );
+  }
+  return { ...binding, status };
 }
 
 function contractTool(context: SpinePluginContext, operation: string): PluginTool {

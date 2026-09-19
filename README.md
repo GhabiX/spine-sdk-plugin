@@ -174,6 +174,17 @@ cross-layer transaction, so a registry failure after external provisioning is
 reported for the caller to clean up. Without all explicit adapters the tool
 remains contract-only.
 
+Agent lifecycle is an explicit registry concern. `MemoryAgentRegistry` and
+`GitSpineTreeAgentRegistry` expose `transition(agentId, status)` with the
+matrix `running -> running|paused|ended`, `paused -> paused|running|ended`,
+and `ended -> ended`. A transition changes only `status`; binding identity is
+kept intact. Missing agents return `unknown-agent`, and recovering an ended
+agent returns `invalid-transition`. The project POC wires this operation only
+when `spinetree.agent` is supplied: canonical `onSessionReady` registers a
+`running` binding and the caller-owned `session_shutdown` hook marks it
+`ended`. Session creation, lease ownership, transport, disposal, and
+reconnection stay outside the plugin.
+
 ## Pi extension
 
 `@spinejit/spine-plugin` declares its loadable entry in `pi.extensions`; the
