@@ -86,7 +86,15 @@ export interface SpineTreeAgentRegistry {
   resolve(agentId: string): SpineTreeAgentBinding | undefined | Promise<SpineTreeAgentBinding | undefined>;
 }
 
-export class MemoryAgentRegistry implements SpineTreeAgentRegistry {
+export interface SpineTreeAgentRegistryReader {
+  list(branch?: string): readonly SpineTreeAgentBinding[] | Promise<readonly SpineTreeAgentBinding[]>;
+}
+
+export interface SpineTreeExclusiveAgentRegistry {
+  registerExclusive(binding: SpineTreeAgentBinding): void | Promise<void>;
+}
+
+export class MemoryAgentRegistry implements SpineTreeAgentRegistry, SpineTreeAgentRegistryReader, SpineTreeExclusiveAgentRegistry {
   readonly #bindings = new Map<string, SpineTreeAgentBinding>();
 
   register(binding: SpineTreeAgentBinding): void {
@@ -101,10 +109,27 @@ export class MemoryAgentRegistry implements SpineTreeAgentRegistry {
     const binding = this.#bindings.get(agentId);
     return binding === undefined ? undefined : clone(binding);
   }
+
+  list(branch?: string): readonly SpineTreeAgentBinding[] {
+    return [...this.#bindings.values()]
+      .filter(binding => branch === undefined || binding.branch === branch)
+      .map(binding => clone(binding));
+  }
+
+  registerExclusive(binding: SpineTreeAgentBinding): void {
+    validateBinding(binding);
+    if (this.#bindings.has(binding.agentId)) {
+      throw new SpineTreeRegistryError("duplicate-agent", `Agent ${binding.agentId} is already registered`);
+    }
+    if ([...this.#bindings.values()].some(existing => existing.branch === binding.branch && existing.status !== "ended")) {
+      throw new SpineTreeRegistryError("branch-occupied", `ProjectBranch ${binding.branch} already has an active Agent`);
+    }
+    this.#bindings.set(binding.agentId, clone(binding));
+  }
 }
 
 /** A registry persisted in the same immutable snapshot/HEAD as the tree. */
-export class GitSpineTreeAgentRegistry implements SpineTreeAgentRegistry {
+export class GitSpineTreeAgentRegistry implements SpineTreeAgentRegistry, SpineTreeAgentRegistryReader, SpineTreeExclusiveAgentRegistry {
   readonly store: SpineTreeSnapshotCommitStore;
   readonly #maxCasRetries: number;
 
@@ -136,10 +161,38 @@ export class GitSpineTreeAgentRegistry implements SpineTreeAgentRegistry {
     const binding = snapshot.registry?.[agentId];
     return binding === undefined ? undefined : clone(binding);
   }
+
+  async list(branch?: string): Promise<readonly SpineTreeAgentBinding[]> {
+    const head = await this.store.head();
+    const snapshot = await this.store.readSnapshot(head);
+    return Object.values(snapshot.registry ?? {})
+      .filter(binding => branch === undefined || binding.branch === branch)
+      .map(binding => clone(binding));
+  }
+
+  async registerExclusive(binding: SpineTreeAgentBinding): Promise<void> {
+    validateBinding(binding);
+    await mutateSnapshotWithRetry(
+      this.store,
+      this.#maxCasRetries,
+      "spinetree: registry exclusive register",
+      snapshot => {
+        const registry = { ...(snapshot.registry ?? {}) };
+        if (registry[binding.agentId] !== undefined) {
+          throw new SpineTreeRegistryError("duplicate-agent", `Agent ${binding.agentId} is already registered`);
+        }
+        if (Object.values(registry).some(existing => existing.branch === binding.branch && existing.status !== "ended")) {
+          throw new SpineTreeRegistryError("branch-occupied", `ProjectBranch ${binding.branch} already has an active Agent`);
+        }
+        registry[binding.agentId] = clone(binding);
+        return { snapshot: { ...snapshot, registry }, value: undefined };
+      },
+    );
+  }
 }
 
 export class SpineTreeRegistryError extends Error {
-  readonly code: "invalid-binding" | "duplicate-agent";
+  readonly code: "invalid-binding" | "duplicate-agent" | "branch-occupied";
 
   constructor(code: SpineTreeRegistryError["code"], message: string) {
     super(message);
@@ -717,11 +770,23 @@ export class GitSpineTreeStore implements SpineTreeChangeStore {
 /** An explicit adapter for a `.spinetree` root. */
 export type SpineTreeRootAdapter = SpineTreeSnapshotStore;
 
+export interface SpineTreeRejuvenateContext {
+  readonly parent: SpineTreeBranch;
+  readonly branch: SpineTreeBranch;
+  readonly inherit: SpineTreeInheritance;
+  readonly request?: string;
+}
+
+export interface SpineTreeRejuvenator {
+  provision(context: SpineTreeRejuvenateContext): SpineTreeAgentBinding | Promise<SpineTreeAgentBinding>;
+}
+
 export interface SpineTreePluginOptions {
   readonly store?: SpineTreeSnapshotStore;
   readonly root?: SpineTreeRootAdapter;
   readonly registry?: SpineTreeAgentRegistry;
   readonly mailbox?: SpineTreeMailbox;
+  readonly rejuvenator?: SpineTreeRejuvenator;
 }
 
 export interface SpineTreeSendInput {
@@ -751,6 +816,22 @@ export interface SpineTreeObserveResult {
   readonly sessionId: string;
 }
 
+export const SPINETREE_REJUVENATE_RESULT_SCHEMA = "spinetree.rejuvenate.result/v1" as const;
+
+export interface SpineTreeRejuvenateInput {
+  readonly parent: string;
+  readonly branch: string;
+  readonly request?: string;
+}
+
+export interface SpineTreeRejuvenateResult {
+  readonly schema: typeof SPINETREE_REJUVENATE_RESULT_SCHEMA;
+  readonly parent: string;
+  readonly branch: string;
+  readonly binding: SpineTreeAgentBinding;
+  readonly context: SpineTreeRejuvenateContext;
+}
+
 export class SpineTreeSendError extends Error {
   readonly code: "invalid-input" | "unknown-recipient" | "recipient-ended" | "mailbox-error";
 
@@ -767,6 +848,24 @@ export class SpineTreeObserveError extends Error {
   constructor(code: SpineTreeObserveError["code"], message: string) {
     super(message);
     this.name = "SpineTreeObserveError";
+    this.code = code;
+  }
+}
+
+export class SpineTreeRejuvenateError extends Error {
+  readonly code:
+    | "invalid-input"
+    | "unavailable"
+    | "unknown-branch"
+    | "branch-not-capped"
+    | "invalid-parent"
+    | "branch-occupied"
+    | "invalid-binding"
+    | "registry-error";
+
+  constructor(code: SpineTreeRejuvenateError["code"], message: string) {
+    super(message);
+    this.name = "SpineTreeRejuvenateError";
     this.code = code;
   }
 }
@@ -836,6 +935,8 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
   const changeStore = options.store !== undefined && isChangeStore(options.store) ? options.store : undefined;
   const sendReady = options.registry !== undefined && options.mailbox !== undefined;
   const observeReady = sendReady && isMailboxReader(options.mailbox!);
+  const rejuvenateReady = store !== undefined && options.registry !== undefined &&
+    isRegistryReader(options.registry) && isExclusiveRegistry(options.registry) && options.rejuvenator !== undefined;
   return {
     manifest: SPINETREE_PLUGIN_MANIFEST,
     activate(context) {
@@ -850,6 +951,8 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
               ? sendTool(options.registry!, options.mailbox!, context)
             : operation === "observe" && observeReady
               ? observeTool(options.registry!, options.mailbox!, options.mailbox!)
+            : operation === "rejuvenate" && rejuvenateReady
+              ? rejuvenateTool(store!, options.registry!, options.rejuvenator!)
             : contractTool(context, operation),
         );
       }
@@ -1011,6 +1114,100 @@ function observeMailboxError(error: unknown, receiptId: string): SpineTreeObserv
   return new SpineTreeObserveError("mailbox-error", `Could not observe receipt ${receiptId}: ${error instanceof Error ? error.message : String(error)}`);
 }
 
+function rejuvenateTool(
+  store: SpineTreeSnapshotStore,
+  registry: SpineTreeAgentRegistry & SpineTreeAgentRegistryReader & SpineTreeExclusiveAgentRegistry,
+  rejuvenator: SpineTreeRejuvenator,
+): PluginTool {
+  return {
+    description: "Provision a new Agent for a capped ProjectBranch through an explicit caller-owned adapter",
+    execute: async (input: unknown) => {
+      const parsed = parseRejuvenateInput(input);
+      const head = await store.head();
+      const snapshot = await store.readSnapshot(head);
+      const target = snapshot.branches[parsed.branch];
+      if (target === undefined) {
+        throw new SpineTreeRejuvenateError("unknown-branch", `Unknown ProjectBranch ${parsed.branch}`);
+      }
+      const parent = snapshot.branches[parsed.parent];
+      if (parent === undefined || !isDescendant(snapshot, target.id, parent.id)) {
+        throw new SpineTreeRejuvenateError(
+          "invalid-parent",
+          `ProjectBranch ${parsed.parent} is not an ancestor of ${parsed.branch}`,
+        );
+      }
+      if (target.status !== "capped") {
+        throw new SpineTreeRejuvenateError("branch-not-capped", `ProjectBranch ${target.id} is ${target.status}, not capped`);
+      }
+      let bindings: readonly SpineTreeAgentBinding[];
+      try {
+        bindings = await registry.list(target.id);
+      } catch (error) {
+        throw new SpineTreeRejuvenateError("registry-error", formatError(error));
+      }
+      if (bindings.some(binding => binding.status !== "ended")) {
+        throw new SpineTreeRejuvenateError("branch-occupied", `ProjectBranch ${target.id} already has an active Agent`);
+      }
+      const context: SpineTreeRejuvenateContext = {
+        parent: clone(parent),
+        branch: clone(target),
+        inherit: inheritance(snapshot, target),
+        ...(parsed.request === undefined ? {} : { request: parsed.request }),
+      };
+      let binding: SpineTreeAgentBinding;
+      try {
+        binding = await rejuvenator.provision(context);
+        validateBinding(binding);
+        if (binding.branch !== target.id) {
+          throw new SpineTreeRejuvenateError("invalid-binding", `Provisioned Agent must bind ProjectBranch ${target.id}`);
+        }
+      } catch (error) {
+        if (error instanceof SpineTreeRejuvenateError) throw error;
+        if (error instanceof SpineTreeRegistryError) {
+          throw new SpineTreeRejuvenateError("invalid-binding", error.message);
+        }
+        throw error;
+      }
+      try {
+        await registry.registerExclusive(binding);
+      } catch (error) {
+        if (error instanceof SpineTreeRegistryError && error.code === "branch-occupied") {
+          throw new SpineTreeRejuvenateError("branch-occupied", error.message);
+        }
+        if (error instanceof SpineTreeRegistryError && error.code === "invalid-binding") {
+          throw new SpineTreeRejuvenateError("invalid-binding", error.message);
+        }
+        throw new SpineTreeRejuvenateError("registry-error", formatError(error));
+      }
+      return {
+        schema: SPINETREE_REJUVENATE_RESULT_SCHEMA,
+        parent: parsed.parent,
+        branch: target.id,
+        binding: clone(binding),
+        context,
+      } satisfies SpineTreeRejuvenateResult;
+    },
+  };
+}
+
+function parseRejuvenateInput(input: unknown): SpineTreeRejuvenateInput {
+  if (input === null || typeof input !== "object") {
+    throw new SpineTreeRejuvenateError("invalid-input", "spinetree_rejuvenate requires an object input");
+  }
+  const value = input as { parent?: unknown; branch?: unknown; request?: unknown };
+  if (typeof value.parent !== "string" || value.parent.length === 0 || typeof value.branch !== "string" || value.branch.length === 0) {
+    throw new SpineTreeRejuvenateError("invalid-input", "spinetree_rejuvenate requires non-empty parent and branch strings");
+  }
+  if (value.request !== undefined && (typeof value.request !== "string" || value.request.length === 0)) {
+    throw new SpineTreeRejuvenateError("invalid-input", "spinetree_rejuvenate request must be a non-empty string");
+  }
+  return {
+    parent: value.parent,
+    branch: value.branch,
+    ...(value.request === undefined ? {} : { request: value.request }),
+  };
+}
+
 function parseSendInput(input: unknown): SpineTreeSendInput {
   if (input === null || typeof input !== "object") {
     throw new SpineTreeSendError("invalid-input", "spinetree_send requires an object input");
@@ -1102,6 +1299,14 @@ function isChangeStore(store: SpineTreeSnapshotStore): store is SpineTreeChangeS
 
 function isMailboxReader(mailbox: SpineTreeMailbox): mailbox is SpineTreeMailbox & SpineTreeMailboxReader {
   return typeof (mailbox as Partial<SpineTreeMailboxReader>).receipt === "function";
+}
+
+function isRegistryReader(registry: SpineTreeAgentRegistry): registry is SpineTreeAgentRegistry & SpineTreeAgentRegistryReader {
+  return typeof (registry as Partial<SpineTreeAgentRegistryReader>).list === "function";
+}
+
+function isExclusiveRegistry(registry: SpineTreeAgentRegistry): registry is SpineTreeAgentRegistry & SpineTreeExclusiveAgentRegistry {
+  return typeof (registry as Partial<SpineTreeExclusiveAgentRegistry>).registerExclusive === "function";
 }
 
 function asCommitStore(storeOrRoot: SpineTreeSnapshotCommitStore | string): SpineTreeSnapshotCommitStore {

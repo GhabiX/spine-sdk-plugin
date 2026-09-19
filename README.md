@@ -151,6 +151,19 @@ in `skipped`. The function does not start a worker, schedule itself, or add a
 model-visible tool. Lease expiry and lost acknowledgements can still cause
 duplicate remote delivery, so the caller controls when to run another pass.
 
+`spinetree_rejuvenate` is enabled only with an explicit snapshot store, a
+registry that exposes `list()` and `registerExclusive()`, and a caller-owned `rejuvenator.provision`
+adapter. It validates that `{ parent, branch, request? }` names an existing
+`capped` branch, that `parent` is the branch itself or an ancestor, and that
+no active Agent is already bound to the branch. The provisioner receives
+detached branch data plus the effective inherited context and owns Pi session
+creation, transport, initial prompt, and cleanup. Its returned binding is
+registered through the same registry; the result is
+`spinetree.rejuvenate.result/v1`. There is no implicit Pi process creation or
+cross-layer transaction, so a registry failure after external provisioning is
+reported for the caller to clean up. Without all explicit adapters the tool
+remains contract-only.
+
 ## Pi extension
 
 `@spinejit/spine-plugin` declares its loadable entry in `pi.extensions`; the
