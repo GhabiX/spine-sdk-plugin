@@ -24,8 +24,11 @@ current `spine-core` implementation remains in SpineCodex and is identified by
 - `packages/plugin`: `@spinejit/spine-plugin`, shared controller plus `./pi`
   and `./deepseek-harness` entrypoints.
 - `packages/spinetree-plugin`: `@spinetree/plugin`, an ordinary Pi project
-  coordination plugin skeleton. It owns only the `spinetree` namespaces and
-  does not replace the canonical Spine context or sampling owner.
+  coordination plugin. It owns only the `spinetree` namespaces and does not
+  replace the canonical Spine context or sampling owner. Its `spinetree_read`
+  tool becomes a real, fixed-HEAD read only when the factory receives an
+  explicit snapshot store or `.spinetree` root adapter; the default factory
+  remains contract-only and creates no workspace state.
 - `fixtures/conformance`: host-neutral semantic traces.
 - `tests`: native/WASM, recovery, and cross-host equivalence gates.
 
