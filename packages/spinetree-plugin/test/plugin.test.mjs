@@ -9,6 +9,11 @@ import {
   SPINETREE_READ_RESULT_SCHEMA,
   SpineTreeChangeError,
   SpineTreeReadError,
+  MemoryAgentRegistry,
+  MemorySpineTreeMailbox,
+  SpineTreeRegistryError,
+  SpineTreeSendError,
+  SPINETREE_SEND_RESULT_SCHEMA,
 } from "../dist/index.js";
 import { SpinePluginHost } from "@spinejit/spine-host";
 
@@ -291,4 +296,120 @@ test("enforces move cycles, root/live guards, and archive live-work guards", () 
   const result = store.change(head, [{ type: "archive", branch: "capped" }]);
   assert.equal(result.parent, head);
   assert.equal(store.readSnapshot(result.head).branches.capped.status, "archived");
+});
+
+test("sends through a registered Agent session and preserves idempotent receipts", async () => {
+  const registry = new MemoryAgentRegistry();
+  registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "child", status: "running" });
+  const mailbox = new MemorySpineTreeMailbox();
+  const requests = [];
+  const host = new SpinePluginHost({
+    sessions: {
+      async request(request) {
+        requests.push(request);
+        return { accepted: true, requestId: request.requestId };
+      },
+    },
+  });
+  host.register(canonicalPlugin);
+  host.register(createSpineTreePlugin({ registry, mailbox }));
+  await host.activateAll();
+
+  const result = await host.executeTool("spinetree_send", {
+    to: "agent-1",
+    from: undefined,
+    message: "hello",
+    requestId: "req-1",
+  });
+  assert.equal(result.schema, SPINETREE_SEND_RESULT_SCHEMA);
+  assert.equal(result.status, "delivered");
+  assert.equal(result.receipt.id, "mail-1");
+  assert.equal(result.receipt.attempt, 1);
+  assert.equal(result.receipt.status, "delivered");
+  assert.deepEqual(requests, [{
+    targetSessionId: "session-1",
+    operation: "prompt",
+    text: "hello",
+    requestId: "mail-1",
+  }]);
+
+  const repeated = await host.executeTool("spinetree_send", {
+    to: "agent-1", message: "hello", requestId: "req-1",
+  });
+  assert.equal(repeated.receipt.id, "mail-1");
+  assert.equal(requests.length, 1);
+  const observed = mailbox.observed("mail-1");
+  assert.equal(observed.status, "observed");
+  assert.equal(mailbox.observed("mail-1").status, "observed");
+  assert.throws(
+    () => mailbox.enqueue({ to: "agent-1", from: null, message: "different", requestId: "req-1" }),
+    error => error.code === "invalid-state",
+  );
+  await host.dispose();
+});
+
+test("requeues rejected or failed session delivery without losing the receipt", async () => {
+  const registry = new MemoryAgentRegistry();
+  registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "child", status: "running" });
+  const mailbox = new MemorySpineTreeMailbox();
+  let mode = "reject";
+  const host = new SpinePluginHost({
+    sessions: {
+      async request() {
+        if (mode === "reject") return { accepted: false };
+        throw new Error("temporary outage");
+      },
+    },
+  });
+  host.register(canonicalPlugin);
+  host.register(createSpineTreePlugin({ registry, mailbox }));
+  await host.activateAll();
+
+  const rejected = await host.executeTool("spinetree_send", { to: "agent-1", message: "one", requestId: "req-1" });
+  assert.equal(rejected.status, "queued");
+  assert.equal(rejected.receipt.status, "queued");
+  assert.equal(rejected.receipt.attempt, 1);
+  assert.equal(rejected.receipt.lastError, "session request was not accepted");
+
+  mode = "error";
+  const retried = await host.executeTool("spinetree_send", { to: "agent-1", message: "one", requestId: "req-1" });
+  assert.equal(retried.receipt.id, rejected.receipt.id);
+  assert.equal(retried.receipt.attempt, 2);
+  assert.equal(retried.receipt.status, "queued");
+  assert.equal(retried.receipt.lastError, "temporary outage");
+  await host.dispose();
+});
+
+test("validates Agent addresses and keeps send contract-only without explicit dependencies", async () => {
+  const registry = new MemoryAgentRegistry();
+  assert.throws(
+    () => registry.register({ agentId: "", sessionId: "s", branch: "b", status: "running" }),
+    error => error instanceof SpineTreeRegistryError && error.code === "invalid-binding",
+  );
+  registry.register({ agentId: "ended", sessionId: "s-ended", branch: "b", status: "ended" });
+  const host = new SpinePluginHost();
+  host.register(canonicalPlugin);
+  host.register(createSpineTreePlugin());
+  await host.activateAll();
+  assert.deepEqual(await host.executeTool("spinetree_send", { to: "anything", message: "hello" }), {
+    schema: "spinetree.operation.result/v1",
+    operation: "send",
+    status: "contract-only",
+    storageNamespace: "spinetree",
+  });
+  await host.dispose();
+
+  const sendHost = new SpinePluginHost();
+  sendHost.register(canonicalPlugin);
+  sendHost.register(createSpineTreePlugin({ registry, mailbox: new MemorySpineTreeMailbox() }));
+  await sendHost.activateAll();
+  await assert.rejects(
+    sendHost.executeTool("spinetree_send", { to: "missing", message: "hello" }),
+    error => error instanceof SpineTreeSendError && error.code === "unknown-recipient",
+  );
+  await assert.rejects(
+    sendHost.executeTool("spinetree_send", { to: "ended", message: "hello" }),
+    error => error instanceof SpineTreeSendError && error.code === "recipient-ended",
+  );
+  await sendHost.dispose();
 });

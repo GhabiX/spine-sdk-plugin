@@ -2,6 +2,7 @@ import type { PluginManifest, PluginTool, SpinePlugin, SpinePluginContext } from
 
 export const SPINETREE_READ_RESULT_SCHEMA = "spinetree.read.result/v1" as const;
 export const SPINETREE_CHANGE_RESULT_SCHEMA = "spinetree.change.result/v1" as const;
+export const SPINETREE_SEND_RESULT_SCHEMA = "spinetree.send.result/v1" as const;
 
 export interface SpineTreeBranch {
   readonly id: string;
@@ -51,6 +52,209 @@ export interface SpineTreeChangeResult {
 
 export interface SpineTreeChangeStore extends SpineTreeSnapshotStore {
   change(expectedHead: string, changes: readonly SpineTreeChange[]): SpineTreeChangeResult | Promise<SpineTreeChangeResult>;
+}
+
+export interface SpineTreeAgentBinding {
+  readonly agentId: string;
+  readonly sessionId: string;
+  readonly branch: string;
+  readonly scope?: string;
+  readonly status: "running" | "paused" | "ended";
+}
+
+export interface SpineTreeAgentRegistry {
+  register(binding: SpineTreeAgentBinding): void;
+  resolve(agentId: string): SpineTreeAgentBinding | undefined;
+}
+
+export class MemoryAgentRegistry implements SpineTreeAgentRegistry {
+  readonly #bindings = new Map<string, SpineTreeAgentBinding>();
+
+  register(binding: SpineTreeAgentBinding): void {
+    validateBinding(binding);
+    if (this.#bindings.has(binding.agentId)) {
+      throw new SpineTreeRegistryError("duplicate-agent", `Agent ${binding.agentId} is already registered`);
+    }
+    this.#bindings.set(binding.agentId, clone(binding));
+  }
+
+  resolve(agentId: string): SpineTreeAgentBinding | undefined {
+    const binding = this.#bindings.get(agentId);
+    return binding === undefined ? undefined : clone(binding);
+  }
+}
+
+export class SpineTreeRegistryError extends Error {
+  readonly code: "invalid-binding" | "duplicate-agent";
+
+  constructor(code: SpineTreeRegistryError["code"], message: string) {
+    super(message);
+    this.name = "SpineTreeRegistryError";
+    this.code = code;
+  }
+}
+
+export type SpineTreeReceiptStatus = "queued" | "leased" | "delivered" | "observed" | "failed";
+
+export interface SpineTreeReceipt {
+  readonly id: string;
+  readonly to: string;
+  readonly from: string | null;
+  readonly message: string;
+  readonly requestId?: string;
+  readonly status: SpineTreeReceiptStatus;
+  readonly attempt: number;
+  readonly leaseId: string | null;
+  readonly leaseUntil: number | null;
+  readonly nextAttemptAt: number | null;
+  readonly lastError: string | null;
+}
+
+export interface SpineTreeMailboxInput {
+  readonly to: string;
+  readonly from: string | null;
+  readonly message: string;
+  readonly requestId?: string;
+}
+
+export interface SpineTreeMailbox {
+  enqueue(input: SpineTreeMailboxInput): SpineTreeReceipt;
+  lease(receiptId: string): SpineTreeReceipt;
+  delivered(receiptId: string, leaseId: string): SpineTreeReceipt;
+  release(receiptId: string, leaseId: string, error: string): SpineTreeReceipt;
+  fail(receiptId: string, leaseId: string, error: string): SpineTreeReceipt;
+  observed(receiptId: string): SpineTreeReceipt;
+}
+
+export class SpineTreeMailboxError extends Error {
+  readonly code: "unknown-receipt" | "invalid-state" | "lease-conflict";
+
+  constructor(code: SpineTreeMailboxError["code"], message: string) {
+    super(message);
+    this.name = "SpineTreeMailboxError";
+    this.code = code;
+  }
+}
+
+/** A deterministic in-memory mailbox. It preserves receipt IDs across retries. */
+export class MemorySpineTreeMailbox implements SpineTreeMailbox {
+  #sequence = 0;
+  #leaseSequence = 0;
+  readonly #receipts = new Map<string, SpineTreeReceipt>();
+  readonly #requestIds = new Map<string, string>();
+
+  enqueue(input: SpineTreeMailboxInput): SpineTreeReceipt {
+    if (input.requestId !== undefined) {
+      const existingId = this.#requestIds.get(input.requestId);
+      if (existingId !== undefined) {
+        const existing = this.#receipt(existingId);
+        if (existing.to !== input.to || existing.from !== input.from || existing.message !== input.message) {
+          throw new SpineTreeMailboxError("invalid-state", `Request ${input.requestId} is already bound to another message`);
+        }
+        return clone(existing);
+      }
+    }
+    const receipt: SpineTreeReceipt = {
+      id: `mail-${++this.#sequence}`,
+      to: input.to,
+      from: input.from,
+      message: input.message,
+      ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+      status: "queued",
+      attempt: 0,
+      leaseId: null,
+      leaseUntil: null,
+      nextAttemptAt: null,
+      lastError: null,
+    };
+    this.#receipts.set(receipt.id, receipt);
+    if (input.requestId !== undefined) this.#requestIds.set(input.requestId, receipt.id);
+    return clone(receipt);
+  }
+
+  lease(receiptId: string): SpineTreeReceipt {
+    const receipt = this.receipt(receiptId);
+    if (receipt.status === "delivered" || receipt.status === "observed" || receipt.status === "failed") {
+      throw new SpineTreeMailboxError("invalid-state", `Receipt ${receiptId} cannot be leased from ${receipt.status}`);
+    }
+    if (receipt.status === "leased") throw new SpineTreeMailboxError("lease-conflict", `Receipt ${receiptId} is already leased`);
+    const next = {
+      ...receipt,
+      status: "leased" as const,
+      attempt: receipt.attempt + 1,
+      leaseId: `lease-${++this.#leaseSequence}`,
+      leaseUntil: Date.now() + 30_000,
+      nextAttemptAt: null,
+    };
+    this.#receipts.set(receiptId, next);
+    return clone(next);
+  }
+
+  delivered(receiptId: string, leaseId: string): SpineTreeReceipt {
+    const receipt = this.#requireLease(receiptId, leaseId);
+    const next = { ...receipt, status: "delivered" as const, leaseId: null, leaseUntil: null, nextAttemptAt: null };
+    this.#receipts.set(receiptId, next);
+    return clone(next);
+  }
+
+  release(receiptId: string, leaseId: string, error: string): SpineTreeReceipt {
+    this.#requireLease(receiptId, leaseId);
+    const receipt = this.receipt(receiptId);
+    const next = {
+      ...receipt,
+      status: "queued" as const,
+      leaseId: null,
+      leaseUntil: null,
+      nextAttemptAt: Date.now(),
+      lastError: error,
+    };
+    this.#receipts.set(receiptId, next);
+    return clone(next);
+  }
+
+  fail(receiptId: string, leaseId: string, error: string): SpineTreeReceipt {
+    this.#requireLease(receiptId, leaseId);
+    const receipt = this.receipt(receiptId);
+    const next = {
+      ...receipt,
+      status: "failed" as const,
+      leaseId: null,
+      leaseUntil: null,
+      nextAttemptAt: null,
+      lastError: error,
+    };
+    this.#receipts.set(receiptId, next);
+    return clone(next);
+  }
+
+  observed(receiptId: string): SpineTreeReceipt {
+    const receipt = this.#receipt(receiptId);
+    if (receipt.status === "observed") return clone(receipt);
+    if (receipt.status !== "delivered") {
+      throw new SpineTreeMailboxError("invalid-state", `Receipt ${receiptId} cannot be observed from ${receipt.status}`);
+    }
+    const next = { ...receipt, status: "observed" as const };
+    this.#receipts.set(receiptId, next);
+    return clone(next);
+  }
+
+  #receipt(receiptId: string): SpineTreeReceipt {
+    const receipt = this.#receipts.get(receiptId);
+    if (receipt === undefined) throw new SpineTreeMailboxError("unknown-receipt", `Unknown receipt ${receiptId}`);
+    return receipt;
+  }
+
+  receipt(receiptId: string): SpineTreeReceipt {
+    return clone(this.#receipt(receiptId));
+  }
+
+  #requireLease(receiptId: string, leaseId: string): SpineTreeReceipt {
+    const receipt = this.#receipt(receiptId);
+    if (receipt.status !== "leased" || receipt.leaseId !== leaseId) {
+      throw new SpineTreeMailboxError("lease-conflict", `Lease ${leaseId} does not own receipt ${receiptId}`);
+    }
+    return receipt;
+  }
 }
 
 export class SpineTreeChangeError extends Error {
@@ -120,6 +324,33 @@ export type SpineTreeRootAdapter = SpineTreeSnapshotStore;
 export interface SpineTreePluginOptions {
   readonly store?: SpineTreeSnapshotStore;
   readonly root?: SpineTreeRootAdapter;
+  readonly registry?: SpineTreeAgentRegistry;
+  readonly mailbox?: SpineTreeMailbox;
+}
+
+export interface SpineTreeSendInput {
+  readonly to: string;
+  readonly message: string;
+  readonly from?: string;
+  readonly requestId?: string;
+}
+
+export interface SpineTreeSendResult {
+  readonly schema: typeof SPINETREE_SEND_RESULT_SCHEMA;
+  readonly receipt: SpineTreeReceipt;
+  readonly status: "delivered" | "queued" | "failed";
+  readonly to: string;
+  readonly sessionId: string;
+}
+
+export class SpineTreeSendError extends Error {
+  readonly code: "invalid-input" | "unknown-recipient" | "recipient-ended" | "mailbox-error";
+
+  constructor(code: SpineTreeSendError["code"], message: string) {
+    super(message);
+    this.name = "SpineTreeSendError";
+    this.code = code;
+  }
 }
 
 export interface SpineTreeReadInput {
@@ -185,6 +416,7 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
   }
   const store = options.store ?? options.root;
   const changeStore = options.store !== undefined && isChangeStore(options.store) ? options.store : undefined;
+  const sendReady = options.registry !== undefined && options.mailbox !== undefined;
   return {
     manifest: SPINETREE_PLUGIN_MANIFEST,
     activate(context) {
@@ -195,6 +427,8 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
             ? readTool(store)
             : operation === "change" && changeStore !== undefined
               ? changeTool(changeStore)
+            : operation === "send" && sendReady
+              ? sendTool(options.registry!, options.mailbox!, context)
             : contractTool(context, operation),
         );
       }
@@ -204,6 +438,121 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
       });
     },
   };
+}
+
+function sendTool(
+  registry: SpineTreeAgentRegistry,
+  mailbox: SpineTreeMailbox,
+  context: SpinePluginContext,
+): PluginTool {
+  return {
+    description: "Queue and deliver a message to a registered Agent through its Pi session",
+    execute: async (input: unknown) => {
+      const parsed = parseSendInput(input);
+      const target = registry.resolve(parsed.to);
+      if (target === undefined) {
+        throw new SpineTreeSendError("unknown-recipient", `Unknown Agent ${parsed.to}`);
+      }
+      if (target.status === "ended") {
+        throw new SpineTreeSendError("recipient-ended", `Agent ${parsed.to} has ended`);
+      }
+      if (parsed.from !== undefined) {
+        const source = registry.resolve(parsed.from);
+        if (source === undefined) throw new SpineTreeSendError("unknown-recipient", `Unknown Agent ${parsed.from}`);
+        if (source.status === "ended") throw new SpineTreeSendError("recipient-ended", `Agent ${parsed.from} has ended`);
+      }
+      let receipt: SpineTreeReceipt;
+      try {
+        receipt = mailbox.enqueue({
+          to: parsed.to,
+          from: parsed.from ?? null,
+          message: parsed.message,
+          ...(parsed.requestId === undefined ? {} : { requestId: parsed.requestId }),
+        });
+        if (receipt.status === "delivered" || receipt.status === "observed" || receipt.status === "failed") {
+          return sendResult(receipt, target.sessionId);
+        }
+        const leased = mailbox.lease(receipt.id);
+        try {
+          const response = await context.sessions.request({
+            targetSessionId: target.sessionId,
+            operation: "prompt",
+            text: parsed.message,
+            requestId: receipt.id,
+          });
+          if (response.accepted) {
+            receipt = mailbox.delivered(leased.id, leased.leaseId!);
+          } else {
+            receipt = mailbox.release(leased.id, leased.leaseId!, "session request was not accepted");
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          receipt = isPermanentError(error)
+            ? mailbox.fail(leased.id, leased.leaseId!, message)
+            : mailbox.release(leased.id, leased.leaseId!, message);
+        }
+        return sendResult(receipt, target.sessionId);
+      } catch (error) {
+        if (error instanceof SpineTreeSendError) throw error;
+        if (error instanceof SpineTreeMailboxError) {
+          throw new SpineTreeSendError("mailbox-error", error.message);
+        }
+        throw error;
+      }
+    },
+  };
+}
+
+function sendResult(receipt: SpineTreeReceipt, sessionId: string): SpineTreeSendResult {
+  return {
+    schema: SPINETREE_SEND_RESULT_SCHEMA,
+    receipt: clone(receipt),
+    status: receipt.status === "failed" ? "failed" : receipt.status === "delivered" || receipt.status === "observed" ? "delivered" : "queued",
+    to: receipt.to,
+    sessionId,
+  };
+}
+
+function parseSendInput(input: unknown): SpineTreeSendInput {
+  if (input === null || typeof input !== "object") {
+    throw new SpineTreeSendError("invalid-input", "spinetree_send requires an object input");
+  }
+  const value = input as { to?: unknown; message?: unknown; from?: unknown; requestId?: unknown };
+  if (typeof value.to !== "string" || value.to.length === 0 || typeof value.message !== "string" || value.message.length === 0) {
+    throw new SpineTreeSendError("invalid-input", "spinetree_send requires non-empty to and message strings");
+  }
+  if (value.from !== undefined && (typeof value.from !== "string" || value.from.length === 0)) {
+    throw new SpineTreeSendError("invalid-input", "spinetree_send from must be a non-empty string");
+  }
+  if (value.requestId !== undefined && (typeof value.requestId !== "string" || value.requestId.length === 0)) {
+    throw new SpineTreeSendError("invalid-input", "spinetree_send requestId must be a non-empty string");
+  }
+  return {
+    to: value.to,
+    message: value.message,
+    ...(value.from === undefined ? {} : { from: value.from }),
+    ...(value.requestId === undefined ? {} : { requestId: value.requestId }),
+  };
+}
+
+function isPermanentError(error: unknown): boolean {
+  return error !== null && typeof error === "object" && (error as { permanent?: unknown }).permanent === true;
+}
+
+function validateBinding(binding: SpineTreeAgentBinding): void {
+  if (
+    binding === null ||
+    typeof binding !== "object" ||
+    typeof binding.agentId !== "string" || binding.agentId.length === 0 ||
+    typeof binding.sessionId !== "string" || binding.sessionId.length === 0 ||
+    typeof binding.branch !== "string" || binding.branch.length === 0 ||
+    !["running", "paused", "ended"].includes(binding.status)
+  ) {
+    throw new SpineTreeRegistryError("invalid-binding", "Agent binding requires non-empty agentId, sessionId, branch and valid status");
+  }
+  if (binding.scope !== undefined && (typeof binding.scope !== "string" || binding.scope.length === 0)) {
+    throw new SpineTreeRegistryError("invalid-binding", "Agent binding scope must be a non-empty string");
+  }
 }
 
 function contractTool(context: SpinePluginContext, operation: string): PluginTool {
