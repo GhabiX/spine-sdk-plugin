@@ -77,6 +77,16 @@ current `spine-core` implementation remains in SpineCodex and is identified by
   while an exhausted retry budget returns a typed stale-head error. The plugin
   never creates `.spinetree`, starts a Git process on its own, or turns the
   host's private storage into persistence.
+
+  This CAS is also the cross-process ownership boundary. Two registry or
+  mailbox writers may read the same HEAD, but only one expected-HEAD update can
+  publish; the loser reloads the winning snapshot and retries its semantic
+  mutation. A mailbox lease therefore has one committed owner at a time. An
+  expired lease is reclaimed with a new lease ID, and the old token cannot
+  acknowledge delivery. Exclusive registry registration applies the same rule
+  to active Agent ownership of a ProjectBranch. These guarantees do not add a
+  lock file or background coordinator; they rely on Git ref atomicity and the
+  bounded retry policy.
 - `fixtures/conformance`: host-neutral semantic traces.
 - `tests`: native/WASM, recovery, and cross-host equivalence gates.
 
