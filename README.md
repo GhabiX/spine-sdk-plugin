@@ -39,6 +39,16 @@ current `spine-core` implementation remains in SpineCodex and is identified by
   `sessions.request`, and rejected or transiently failed delivery returns the
   receipt to `queued`.
 
+  A mailbox that also exposes `receipt()` enables `spinetree_observe`. The
+  caller supplies `{ receiptId, agentId }`; the plugin resolves that Agent,
+  checks that the receipt's `to` field names the same Agent, and then performs
+  the mailbox's idempotent `observed()` transition. This is an explicit
+  recipient acknowledgement, not an automatic consequence of Pi accepting a
+  prompt. The Host contract has no caller identity field, so the declared
+  `agentId` is checked against the registry but is not a transport-level
+  authentication mechanism. Unknown, ended, foreign, queued, or unknown
+  receipts return typed observation errors.
+
   Registry and mailbox persistence use the same immutable snapshot and HEAD as
   the ProjectBranch tree. The application creates and initializes one
   `GitSpineTreeStore`, then passes adapters built from that store to the plugin:
@@ -126,8 +136,10 @@ retry worker. `requestId` is echoed only in the local Host response: Pi's
 prompt/steer commands do not accept this mailbox ID. A lost acknowledgement
 may therefore cause duplicate remote delivery on retry. `delivered` does not
 mean the model observed the message, and this adapter never marks `observed`.
-Tests cover the adapter and mailbox with simulated leases; actual Pi
-Server/Client transport integration remains to be verified.
+`spinetree_observe` is the separate recipient acknowledgement path; it does
+not consume queued receipts or run a background worker. Tests cover the
+adapter and mailbox with simulated leases; actual Pi Server/Client transport
+integration remains to be verified.
 
 ## Pi extension
 

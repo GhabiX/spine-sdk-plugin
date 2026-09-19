@@ -6,6 +6,7 @@ import type { PluginManifest, PluginTool, SpinePlugin, SpinePluginContext } from
 export const SPINETREE_READ_RESULT_SCHEMA = "spinetree.read.result/v1" as const;
 export const SPINETREE_CHANGE_RESULT_SCHEMA = "spinetree.change.result/v1" as const;
 export const SPINETREE_SEND_RESULT_SCHEMA = "spinetree.send.result/v1" as const;
+export const SPINETREE_OBSERVE_RESULT_SCHEMA = "spinetree.observe.result/v1" as const;
 
 export interface SpineTreeBranch {
   readonly id: string;
@@ -184,6 +185,10 @@ export interface SpineTreeMailbox {
   release(receiptId: string, leaseId: string, error: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
   fail(receiptId: string, leaseId: string, error: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
   observed(receiptId: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
+}
+
+export interface SpineTreeMailboxReader {
+  receipt(receiptId: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
 }
 
 export class SpineTreeMailboxError extends Error {
@@ -684,12 +689,34 @@ export interface SpineTreeSendResult {
   readonly sessionId: string;
 }
 
+export interface SpineTreeObserveInput {
+  readonly receiptId: string;
+  readonly agentId: string;
+}
+
+export interface SpineTreeObserveResult {
+  readonly schema: typeof SPINETREE_OBSERVE_RESULT_SCHEMA;
+  readonly receipt: SpineTreeReceipt;
+  readonly agentId: string;
+  readonly sessionId: string;
+}
+
 export class SpineTreeSendError extends Error {
   readonly code: "invalid-input" | "unknown-recipient" | "recipient-ended" | "mailbox-error";
 
   constructor(code: SpineTreeSendError["code"], message: string) {
     super(message);
     this.name = "SpineTreeSendError";
+    this.code = code;
+  }
+}
+
+export class SpineTreeObserveError extends Error {
+  readonly code: "invalid-input" | "unknown-agent" | "agent-ended" | "unknown-receipt" | "not-recipient" | "invalid-state" | "mailbox-error";
+
+  constructor(code: SpineTreeObserveError["code"], message: string) {
+    super(message);
+    this.name = "SpineTreeObserveError";
     this.code = code;
   }
 }
@@ -758,10 +785,11 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
   const store = options.store ?? options.root;
   const changeStore = options.store !== undefined && isChangeStore(options.store) ? options.store : undefined;
   const sendReady = options.registry !== undefined && options.mailbox !== undefined;
+  const observeReady = sendReady && isMailboxReader(options.mailbox!);
   return {
     manifest: SPINETREE_PLUGIN_MANIFEST,
     activate(context) {
-      for (const operation of ["read", "change", "send", "rejuvenate"] as const) {
+      for (const operation of ["read", "change", "send", "observe", "rejuvenate"] as const) {
         context.tools.register(
           operation,
           operation === "read" && store !== undefined
@@ -770,6 +798,8 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
               ? changeTool(changeStore)
             : operation === "send" && sendReady
               ? sendTool(options.registry!, options.mailbox!, context)
+            : operation === "observe" && observeReady
+              ? observeTool(options.registry!, options.mailbox!, options.mailbox!)
             : contractTool(context, operation),
         );
       }
@@ -852,6 +882,73 @@ function sendResult(receipt: SpineTreeReceipt, sessionId: string): SpineTreeSend
     to: receipt.to,
     sessionId,
   };
+}
+
+function observeTool(
+  registry: SpineTreeAgentRegistry,
+  mailbox: SpineTreeMailbox,
+  reader: SpineTreeMailboxReader,
+): PluginTool {
+  return {
+    description: "Confirm that the named recipient Agent observed a delivered mailbox receipt",
+    execute: async (input: unknown) => {
+      const parsed = parseObserveInput(input);
+      const agent = await registry.resolve(parsed.agentId);
+      if (agent === undefined) {
+        throw new SpineTreeObserveError("unknown-agent", `Unknown Agent ${parsed.agentId}`);
+      }
+      if (agent.status === "ended") {
+        throw new SpineTreeObserveError("agent-ended", `Agent ${parsed.agentId} has ended`);
+      }
+      let current: SpineTreeReceipt;
+      try {
+        current = await reader.receipt(parsed.receiptId);
+      } catch (error) {
+        throw observeMailboxError(error, parsed.receiptId);
+      }
+      if (current.to !== parsed.agentId) {
+        throw new SpineTreeObserveError(
+          "not-recipient",
+          `Agent ${parsed.agentId} is not the recipient of receipt ${parsed.receiptId}`,
+        );
+      }
+      try {
+        const receipt = await mailbox.observed(parsed.receiptId);
+        return {
+          schema: SPINETREE_OBSERVE_RESULT_SCHEMA,
+          receipt: clone(receipt),
+          agentId: parsed.agentId,
+          sessionId: agent.sessionId,
+        } satisfies SpineTreeObserveResult;
+      } catch (error) {
+        throw observeMailboxError(error, parsed.receiptId);
+      }
+    },
+  };
+}
+
+function parseObserveInput(input: unknown): SpineTreeObserveInput {
+  if (input === null || typeof input !== "object") {
+    throw new SpineTreeObserveError("invalid-input", "spinetree_observe requires an object input");
+  }
+  const value = input as { receiptId?: unknown; agentId?: unknown };
+  if (typeof value.receiptId !== "string" || value.receiptId.length === 0 || typeof value.agentId !== "string" || value.agentId.length === 0) {
+    throw new SpineTreeObserveError("invalid-input", "spinetree_observe requires non-empty receiptId and agentId strings");
+  }
+  return { receiptId: value.receiptId, agentId: value.agentId };
+}
+
+function observeMailboxError(error: unknown, receiptId: string): SpineTreeObserveError {
+  if (error instanceof SpineTreeMailboxError) {
+    if (error.code === "unknown-receipt") {
+      return new SpineTreeObserveError("unknown-receipt", error.message);
+    }
+    if (error.code === "invalid-state") {
+      return new SpineTreeObserveError("invalid-state", error.message);
+    }
+    return new SpineTreeObserveError("mailbox-error", error.message);
+  }
+  return new SpineTreeObserveError("mailbox-error", `Could not observe receipt ${receiptId}: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 function parseSendInput(input: unknown): SpineTreeSendInput {
@@ -941,6 +1038,10 @@ function parseChangeInput(input: unknown): { expectedHead: string; changes: read
 
 function isChangeStore(store: SpineTreeSnapshotStore): store is SpineTreeChangeStore {
   return typeof (store as Partial<SpineTreeChangeStore>).change === "function";
+}
+
+function isMailboxReader(mailbox: SpineTreeMailbox): mailbox is SpineTreeMailbox & SpineTreeMailboxReader {
+  return typeof (mailbox as Partial<SpineTreeMailboxReader>).receipt === "function";
 }
 
 function asCommitStore(storeOrRoot: SpineTreeSnapshotCommitStore | string): SpineTreeSnapshotCommitStore {

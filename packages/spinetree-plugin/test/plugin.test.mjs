@@ -12,8 +12,10 @@ import {
   SPINETREE_PLUGIN_MANIFEST,
   SPINETREE_CHANGE_RESULT_SCHEMA,
   SPINETREE_READ_RESULT_SCHEMA,
+  SPINETREE_OBSERVE_RESULT_SCHEMA,
   SpineTreeChangeError,
   SpineTreeReadError,
+  SpineTreeObserveError,
   MemoryAgentRegistry,
   GitSpineTreeAgentRegistry,
   MemorySpineTreeMailbox,
@@ -610,6 +612,66 @@ test("wires Git registry and mailbox persistence through the SpineTree send tool
     }),
     result.receipt,
   );
+
+  const observeHost = new SpinePluginHost();
+  observeHost.register(canonicalPlugin);
+  observeHost.register(createSpineTreePlugin({
+    registry: reloadedRegistry,
+    mailbox: reloadedMailbox,
+  }));
+  await observeHost.activateAll();
+  const observed = await observeHost.executeTool("spinetree_observe", {
+    receiptId: "mail-1",
+    agentId: "agent-1",
+  });
+  assert.deepEqual(observed, {
+    schema: SPINETREE_OBSERVE_RESULT_SCHEMA,
+    receipt: { ...result.receipt, status: "observed" },
+    agentId: "agent-1",
+    sessionId: "session-1",
+  });
+  await observeHost.dispose();
+  assert.equal((await new GitSpineTreeMailbox(new GitSpineTreeStore(root)).receipt("mail-1")).status, "observed");
+});
+
+test("observes only delivered receipts for their registered recipient and is idempotent", async () => {
+  const registry = new MemoryAgentRegistry();
+  registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "root", status: "running" });
+  registry.register({ agentId: "agent-2", sessionId: "session-2", branch: "root", status: "paused" });
+  const mailbox = new MemorySpineTreeMailbox();
+  const queued = mailbox.enqueue({ to: "agent-1", from: null, message: "queued" });
+  const delivered = mailbox.delivered(queued.id, mailbox.lease(queued.id).leaseId);
+
+  const host = new SpinePluginHost();
+  host.register(canonicalPlugin);
+  host.register(createSpineTreePlugin({ registry, mailbox }));
+  await host.activateAll();
+
+  const result = await host.executeTool("spinetree_observe", {
+    receiptId: delivered.id,
+    agentId: "agent-1",
+  });
+  assert.deepEqual(result, {
+    schema: SPINETREE_OBSERVE_RESULT_SCHEMA,
+    receipt: { ...delivered, status: "observed" },
+    agentId: "agent-1",
+    sessionId: "session-1",
+  });
+  assert.deepEqual(await host.executeTool("spinetree_observe", {
+    receiptId: delivered.id,
+    agentId: "agent-1",
+  }), result);
+  await assert.rejects(
+    host.executeTool("spinetree_observe", { receiptId: delivered.id, agentId: "agent-2" }),
+    error => error instanceof SpineTreeObserveError && error.code === "not-recipient",
+  );
+
+  const pending = mailbox.enqueue({ to: "agent-1", from: null, message: "pending" });
+  await assert.rejects(
+    host.executeTool("spinetree_observe", { receiptId: pending.id, agentId: "agent-1" }),
+    error => error instanceof SpineTreeObserveError && error.code === "invalid-state",
+  );
+  await host.dispose();
 });
 
 test("sends through a registered Agent session and preserves idempotent receipts", async () => {
@@ -808,6 +870,12 @@ test("validates Agent addresses and keeps send contract-only without explicit de
   assert.deepEqual(await host.executeTool("spinetree_send", { to: "anything", message: "hello" }), {
     schema: "spinetree.operation.result/v1",
     operation: "send",
+    status: "contract-only",
+    storageNamespace: "spinetree",
+  });
+  assert.deepEqual(await host.executeTool("spinetree_observe", {}), {
+    schema: "spinetree.operation.result/v1",
+    operation: "observe",
     status: "contract-only",
     storageNamespace: "spinetree",
   });
