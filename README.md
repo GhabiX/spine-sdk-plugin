@@ -29,11 +29,15 @@ current `spine-core` implementation remains in SpineCodex and is identified by
   tool becomes a real, fixed-HEAD read when the factory receives an explicit
   snapshot store or `.spinetree` root adapter. An explicit change-capable store
   also enables `spinetree_change`, which applies immutable ProjectBranch
-  updates through a required expected-HEAD CAS token. The default factory
-  remains contract-only and creates no workspace state. Explicit registry and
-  mailbox adapters additionally enable `spinetree_send`: AgentId addresses are
-  resolved to PiSession IDs, receipts are leased before `sessions.request`,
-  and rejected or transiently failed delivery returns the receipt to `queued`.
+  updates through a required expected-HEAD CAS token. `GitSpineTreeStore`
+  provides the explicit filesystem adapter: `initialize()` creates a
+  `.spinetree` Git repository, snapshots are committed as immutable
+  `state.json` objects, and `git update-ref` performs expected-HEAD CAS. The
+  default factory remains contract-only and creates no workspace state.
+  Explicit registry and mailbox adapters additionally enable `spinetree_send`:
+  AgentId addresses are resolved to PiSession IDs, receipts are leased before
+  `sessions.request`, and rejected or transiently failed delivery returns the
+  receipt to `queued`.
 - `fixtures/conformance`: host-neutral semantic traces.
 - `tests`: native/WASM, recovery, and cross-host equivalence gates.
 
@@ -53,8 +57,10 @@ status command. The host rejects duplicate owner slots and namespaces, gives
 each plugin private storage, and orders activation by manifest dependencies.
 The current contract only implements owner claims; event observation and
 session requests are host services, not separate capability kinds. The
-SpineTree plugin's in-memory change store and registry/mailbox are testable
-adapter boundaries, not the Git-backed `.spinetree` persistence layer.
+SpineTree plugin's in-memory change store and registry/mailbox remain testable
+adapter boundaries. `GitSpineTreeStore` is an explicit Git-backed
+`.spinetree` persistence adapter; no Pi launcher creates or attaches one by
+default.
 
 ## Pi extension
 

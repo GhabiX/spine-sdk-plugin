@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { PluginManifest, PluginTool, SpinePlugin, SpinePluginContext } from "@spinejit/spine-host";
 
 export const SPINETREE_READ_RESULT_SCHEMA = "spinetree.read.result/v1" as const;
@@ -318,7 +321,118 @@ export class MemorySpineTreeStore implements SpineTreeChangeStore {
   }
 }
 
-/** An explicit adapter for a `.spinetree` root. It is intentionally read-only. */
+export class SpineTreeGitStoreError extends Error {
+  readonly code: "invalid-root" | "not-initialized" | "invalid-head" | "invalid-snapshot" | "git-error";
+
+  constructor(
+    code: SpineTreeGitStoreError["code"],
+    message: string,
+  ) {
+    super(message);
+    this.name = "SpineTreeGitStoreError";
+    this.code = code;
+  }
+}
+
+/** A real `.spinetree` Git object store with immutable snapshots and ref-level CAS. */
+export class GitSpineTreeStore implements SpineTreeChangeStore {
+  readonly root: string;
+
+  constructor(root: string) {
+    if (typeof root !== "string" || root.length === 0) {
+      throw new SpineTreeGitStoreError("invalid-root", "SpineTree Git root must be a non-empty path");
+    }
+    this.root = root;
+    if (!existsSync(join(root, ".git"))) {
+      throw new SpineTreeGitStoreError("not-initialized", `SpineTree Git root is not initialized: ${root}`);
+    }
+  }
+
+  static initialize(root: string, snapshot: SpineTreeSnapshot): GitSpineTreeStore {
+    if (typeof root !== "string" || root.length === 0) {
+      throw new SpineTreeGitStoreError("invalid-root", "SpineTree Git root must be a non-empty path");
+    }
+    mkdirSync(root, { recursive: true });
+    const gitDir = join(root, ".git");
+    if (existsSync(gitDir)) {
+      throw new SpineTreeGitStoreError("invalid-root", `SpineTree Git root already exists: ${root}`);
+    }
+    runGit(root, ["init", "-q"]);
+    runGit(root, ["config", "user.email", "spinetree@localhost"]);
+    runGit(root, ["config", "user.name", "SpineTree"]);
+    const store = new GitSpineTreeStore(root);
+    const commit = store.#commitSnapshot(snapshot, "spinetree: initialize", null);
+    runGit(root, ["update-ref", "HEAD", commit, "0".repeat(40)]);
+    return store;
+  }
+
+  head(): string {
+    try {
+      return runGit(this.root, ["rev-parse", "HEAD"]).trim();
+    } catch (error) {
+      throw new SpineTreeChangeError("unknown-head", `SpineTree Git HEAD is unavailable: ${formatError(error)}`);
+    }
+  }
+
+  readSnapshot(head: string): SpineTreeSnapshot {
+    validateGitHead(head);
+    let raw: string;
+    try {
+      raw = runGit(this.root, ["show", `${head}:state.json`]);
+    } catch (error) {
+      throw new SpineTreeChangeError("unknown-head", `Unknown SpineTree Git HEAD ${head}: ${formatError(error)}`);
+    }
+    try {
+      return clone(parseSnapshot(JSON.parse(raw)));
+    } catch (error) {
+      if (error instanceof SpineTreeGitStoreError) throw error;
+      throw new SpineTreeGitStoreError("invalid-snapshot", `Invalid snapshot at ${head}: ${formatError(error)}`);
+    }
+  }
+
+  change(expectedHead: string, changes: readonly SpineTreeChange[]): SpineTreeChangeResult {
+    validateGitHead(expectedHead);
+    const currentHead = this.head();
+    if (currentHead !== expectedHead) {
+      throw new SpineTreeChangeError(
+        "stale-head",
+        `SpineTree HEAD changed: expected ${expectedHead}, found ${currentHead}`,
+      );
+    }
+    const draft = clone(this.readSnapshot(expectedHead));
+    applyChanges(draft, changes);
+    const nextHead = this.#commitSnapshot(draft, "spinetree: change", expectedHead);
+    try {
+      runGit(this.root, ["update-ref", "HEAD", nextHead, expectedHead]);
+    } catch (error) {
+      const observed = this.head();
+      if (observed !== expectedHead) {
+        throw new SpineTreeChangeError(
+          "stale-head",
+          `SpineTree HEAD changed: expected ${expectedHead}, found ${observed}`,
+        );
+      }
+      throw new SpineTreeGitStoreError("git-error", `Unable to publish SpineTree HEAD: ${formatError(error)}`);
+    }
+    return {
+      schema: SPINETREE_CHANGE_RESULT_SCHEMA,
+      parent: expectedHead,
+      head: nextHead,
+      changes: clone(changes),
+    };
+  }
+
+  #commitSnapshot(snapshot: SpineTreeSnapshot, message: string, parent: string | null): string {
+    const content = `${JSON.stringify(parseSnapshot(snapshot), null, 2)}\n`;
+    const blob = runGit(this.root, ["hash-object", "-w", "--stdin"], content).trim();
+    const tree = runGit(this.root, ["mktree"], `100644 blob ${blob}\tstate.json\n`).trim();
+    const args = ["commit-tree", tree, "-m", message];
+    if (parent !== null) args.push("-p", parent);
+    return runGit(this.root, args).trim();
+  }
+}
+
+/** An explicit adapter for a `.spinetree` root. */
 export type SpineTreeRootAdapter = SpineTreeSnapshotStore;
 
 export interface SpineTreePluginOptions {
@@ -761,6 +875,46 @@ function binding(snapshot: SpineTreeSnapshot, branchId: string): SpineTreeBindin
   return agent === undefined
     ? null
     : { agent: agent.id, working: agent.working, live: [...agent.live] };
+}
+
+function validateGitHead(head: string): void {
+  if (typeof head !== "string" || !/^[0-9a-f]{40,64}$/.test(head)) {
+    throw new SpineTreeGitStoreError("invalid-head", "SpineTree Git HEAD must be a hexadecimal object id");
+  }
+}
+
+function parseSnapshot(value: unknown): SpineTreeSnapshot {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !isRecord((value as { branches?: unknown }).branches) ||
+    !isRecord((value as { agents?: unknown }).agents)
+  ) {
+    throw new SpineTreeGitStoreError("invalid-snapshot", "SpineTree snapshot requires branches and agents maps");
+  }
+  return value as SpineTreeSnapshot;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function runGit(cwd: string, args: readonly string[], input?: string): string {
+  try {
+    return execFileSync("git", [...args], {
+      cwd,
+      input,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch (error) {
+    throw new SpineTreeGitStoreError("git-error", formatError(error));
+  }
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function clone<T>(value: T): T {

@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   createSpineTreePlugin,
@@ -14,6 +19,8 @@ import {
   SpineTreeRegistryError,
   SpineTreeSendError,
   SPINETREE_SEND_RESULT_SCHEMA,
+  GitSpineTreeStore,
+  SpineTreeGitStoreError,
 } from "../dist/index.js";
 import { SpinePluginHost } from "@spinejit/spine-host";
 
@@ -296,6 +303,152 @@ test("enforces move cycles, root/live guards, and archive live-work guards", () 
   const result = store.change(head, [{ type: "archive", branch: "capped" }]);
   assert.equal(result.parent, head);
   assert.equal(store.readSnapshot(result.head).branches.capped.status, "archived");
+});
+
+test("persists immutable snapshots in an explicit `.spinetree` Git root with CAS HEAD", async () => {
+  const snapshot = {
+    branches: {
+      root: {
+        id: "root",
+        parent: null,
+        goal: "project",
+        constraints: [],
+        skills: [],
+        tools: [],
+        memory: null,
+        memoryVersion: 0,
+        memorySource: null,
+        status: "capped",
+      },
+      child: {
+        id: "child",
+        parent: "root",
+        goal: "old",
+        constraints: [],
+        skills: [],
+        tools: [],
+        memory: "done",
+        memoryVersion: 1,
+        memorySource: null,
+        status: "capped",
+      },
+    },
+    agents: {},
+  };
+  const root = await mkdtemp(join(tmpdir(), "spinetree-git-"));
+  const store = GitSpineTreeStore.initialize(root, snapshot);
+  const initialHead = store.head();
+  assert.match(initialHead, /^[0-9a-f]{40}$/);
+  assert.deepEqual(store.readSnapshot(initialHead), snapshot);
+
+  const changed = store.change(initialHead, [{
+    type: "update",
+    branch: "child",
+    attributes: { goal: "new", skills: ["testing"] },
+  }]);
+  assert.equal(changed.parent, initialHead);
+  assert.match(changed.head, /^[0-9a-f]{40}$/);
+  assert.notEqual(changed.head, initialHead);
+  assert.equal(store.head(), changed.head);
+  assert.equal(store.readSnapshot(initialHead).branches.child.goal, "old");
+  assert.equal(store.readSnapshot(changed.head).branches.child.goal, "new");
+
+  const reloaded = new GitSpineTreeStore(root);
+  assert.equal(reloaded.head(), changed.head);
+  assert.equal(reloaded.readSnapshot(changed.head).branches.child.skills[0], "testing");
+  assert.throws(
+    () => GitSpineTreeStore.initialize(root, snapshot),
+    error => error instanceof SpineTreeGitStoreError && error.code === "invalid-root",
+  );
+  assert.throws(
+    () => reloaded.change(initialHead, [{ type: "update", branch: "root", attributes: { goal: "stale" } }]),
+    error => error instanceof SpineTreeChangeError && error.code === "stale-head",
+  );
+  assert.equal(reloaded.head(), changed.head);
+});
+
+test("separate Git store processes enforce one expected-HEAD winner", async () => {
+  const snapshot = {
+    branches: {
+      root: {
+        id: "root",
+        parent: null,
+        goal: "project",
+        constraints: [],
+        skills: [],
+        tools: [],
+        memory: null,
+        memoryVersion: 0,
+        memorySource: null,
+        status: "capped",
+      },
+    },
+    agents: {},
+  };
+  const root = await mkdtemp(join(tmpdir(), "spinetree-git-race-"));
+  const first = GitSpineTreeStore.initialize(root, snapshot);
+  const second = new GitSpineTreeStore(root);
+  const expectedHead = first.head();
+  const firstResult = first.change(expectedHead, [{
+    type: "update",
+    branch: "root",
+    attributes: { goal: "first" },
+  }]);
+  const childScript = `
+    import { GitSpineTreeStore, SpineTreeChangeError } from './dist/index.js';
+    const store = new GitSpineTreeStore(process.env.SPINE_ROOT);
+    try {
+      store.change(process.env.SPINE_HEAD, [{ type: 'update', branch: 'root', attributes: { goal: 'second' } }]);
+      process.exit(2);
+    } catch (error) {
+      if (error instanceof SpineTreeChangeError && error.code === 'stale-head') process.stdout.write('stale-head');
+      else process.exit(3);
+    }
+  `;
+  const childResult = execFileSync(process.execPath, ["--input-type=module", "-e", childScript], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    env: { ...process.env, SPINE_ROOT: root, SPINE_HEAD: expectedHead },
+    encoding: "utf8",
+  });
+  assert.equal(childResult, "stale-head");
+  assert.equal(second.head(), firstResult.head);
+  assert.equal(second.readSnapshot(firstResult.head).branches.root.goal, "first");
+});
+
+test("Git snapshot validation and failed batches do not move HEAD", async () => {
+  const snapshot = {
+    branches: {
+      root: {
+        id: "root",
+        parent: null,
+        goal: "project",
+        constraints: [],
+        skills: [],
+        tools: [],
+        memory: null,
+        memoryVersion: 0,
+        memorySource: null,
+        status: "capped",
+      },
+    },
+    agents: {},
+  };
+  const root = await mkdtemp(join(tmpdir(), "spinetree-git-invalid-"));
+  const store = GitSpineTreeStore.initialize(root, snapshot);
+  const head = store.head();
+  assert.throws(
+    () => store.change(head, [
+      { type: "update", branch: "root", attributes: { goal: "draft" } },
+      { type: "update", branch: "root", attributes: { memory: "forbidden" } },
+    ]),
+    error => error instanceof SpineTreeChangeError && error.code === "invalid-change",
+  );
+  assert.equal(store.head(), head);
+  assert.equal(store.readSnapshot(head).branches.root.goal, "project");
+  assert.throws(
+    () => new GitSpineTreeStore(join(root, "missing")),
+    error => error instanceof SpineTreeGitStoreError && error.code === "not-initialized",
+  );
 });
 
 test("sends through a registered Agent session and preserves idempotent receipts", async () => {
