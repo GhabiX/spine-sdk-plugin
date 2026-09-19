@@ -26,8 +26,10 @@ current `spine-core` implementation remains in SpineCodex and is identified by
 - `packages/spinetree-plugin`: `@spinetree/plugin`, an ordinary Pi project
   coordination plugin. It owns only the `spinetree` namespaces and does not
   replace the canonical Spine context or sampling owner. Its `spinetree_read`
-  tool becomes a real, fixed-HEAD read only when the factory receives an
-  explicit snapshot store or `.spinetree` root adapter; the default factory
+  tool becomes a real, fixed-HEAD read when the factory receives an explicit
+  snapshot store or `.spinetree` root adapter. An explicit change-capable store
+  also enables `spinetree_change`, which applies immutable ProjectBranch
+  updates through a required expected-HEAD CAS token. The default factory
   remains contract-only and creates no workspace state.
 - `fixtures/conformance`: host-neutral semantic traces.
 - `tests`: native/WASM, recovery, and cross-host equivalence gates.
@@ -47,7 +49,9 @@ that currently exposes contract-only `spinetree_*` tools and a namespaced
 status command. The host rejects duplicate owner slots and namespaces, gives
 each plugin private storage, and orders activation by manifest dependencies.
 The current contract only implements owner claims; event observation and
-session requests are host services, not separate capability kinds.
+session requests are host services, not separate capability kinds. The
+SpineTree plugin's in-memory change store is a testable adapter boundary, not
+the Git-backed `.spinetree` persistence layer.
 
 ## Pi extension
 

@@ -3,8 +3,11 @@ import test from "node:test";
 
 import {
   createSpineTreePlugin,
+  MemorySpineTreeStore,
   SPINETREE_PLUGIN_MANIFEST,
+  SPINETREE_CHANGE_RESULT_SCHEMA,
   SPINETREE_READ_RESULT_SCHEMA,
+  SpineTreeChangeError,
   SpineTreeReadError,
 } from "../dist/index.js";
 import { SpinePluginHost } from "@spinejit/spine-host";
@@ -141,4 +144,151 @@ test("reports unknown branches as a typed read error", async () => {
     error => error instanceof SpineTreeReadError && error.code === "unknown-branch",
   );
   await host.dispose();
+});
+
+test("changes an immutable memory snapshot with a strict HEAD CAS", async () => {
+  const snapshot = {
+    branches: {
+      root: {
+        id: "root",
+        parent: null,
+        goal: "project",
+        constraints: [],
+        skills: [],
+        tools: [],
+        memory: null,
+        memoryVersion: 0,
+        memorySource: null,
+        status: "capped",
+      },
+      child: {
+        id: "child",
+        parent: "root",
+        goal: "old",
+        constraints: [],
+        skills: [],
+        tools: [],
+        memory: "done",
+        memoryVersion: 1,
+        memorySource: null,
+        status: "capped",
+      },
+    },
+    agents: {},
+  };
+  const store = new MemorySpineTreeStore(snapshot);
+  const initialHead = store.head();
+  const host = new SpinePluginHost();
+  host.register(canonicalPlugin);
+  host.register(createSpineTreePlugin({ store }));
+  await host.activateAll();
+
+  const result = await host.executeTool("spinetree_change", {
+    expectedHead: initialHead,
+    changes: [
+      { type: "update", branch: "child", attributes: { goal: "new", skills: ["testing"] } },
+      { type: "archive", branch: "child" },
+    ],
+  });
+  assert.deepEqual(result, {
+    schema: SPINETREE_CHANGE_RESULT_SCHEMA,
+    parent: initialHead,
+    head: "memory-1",
+    changes: [
+      { type: "update", branch: "child", attributes: { goal: "new", skills: ["testing"] } },
+      { type: "archive", branch: "child" },
+    ],
+  });
+  assert.equal(store.head(), "memory-1");
+  assert.equal(store.readSnapshot(initialHead).branches.child.goal, "old");
+  assert.equal(store.readSnapshot(initialHead).branches.child.status, "capped");
+  assert.equal(store.readSnapshot("memory-1").branches.child.goal, "new");
+  assert.equal(store.readSnapshot("memory-1").branches.child.status, "archived");
+
+  await assert.rejects(
+    host.executeTool("spinetree_change", {
+      expectedHead: initialHead,
+      changes: [{ type: "update", branch: "root", attributes: { goal: "stale" } }],
+    }),
+    error => error instanceof SpineTreeChangeError && error.code === "stale-head",
+  );
+  assert.equal(store.head(), "memory-1");
+  await host.dispose();
+});
+
+test("rejects an invalid change batch atomically and keeps read-only stores contract-only", async () => {
+  const snapshot = {
+    branches: {
+      root: {
+        id: "root",
+        parent: null,
+        goal: "project",
+        constraints: [],
+        skills: [],
+        tools: [],
+        memory: null,
+        memoryVersion: 0,
+        memorySource: null,
+        status: "capped",
+      },
+    },
+    agents: {},
+  };
+  const store = new MemorySpineTreeStore(snapshot);
+  const head = store.head();
+  assert.throws(
+    () => store.change(head, [
+      { type: "update", branch: "root", attributes: { goal: "draft" } },
+      { type: "update", branch: "root", attributes: { memory: "forbidden" } },
+    ]),
+    error => error instanceof SpineTreeChangeError && error.code === "invalid-change",
+  );
+  assert.equal(store.head(), head);
+  assert.equal(store.readSnapshot(head).branches.root.goal, "project");
+
+  const host = new SpinePluginHost();
+  host.register(canonicalPlugin);
+  host.register(createSpineTreePlugin({
+    store: {
+      head: () => head,
+      readSnapshot: () => snapshot,
+    },
+  }));
+  await host.activateAll();
+  assert.deepEqual(await host.executeTool("spinetree_change", { expectedHead: head, changes: [] }), {
+    schema: "spinetree.operation.result/v1",
+    operation: "change",
+    status: "contract-only",
+    storageNamespace: "spinetree",
+  });
+  await host.dispose();
+});
+
+test("enforces move cycles, root/live guards, and archive live-work guards", () => {
+  const snapshot = {
+    branches: {
+      root: { id: "root", parent: null, goal: "root", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "capped" },
+      capped: { id: "capped", parent: "root", goal: "capped", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "capped" },
+      descendant: { id: "descendant", parent: "capped", goal: "descendant", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "capped" },
+      live: { id: "live", parent: "root", goal: "live", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "live" },
+    },
+    agents: {},
+  };
+  const store = new MemorySpineTreeStore(snapshot);
+  const head = store.head();
+  for (const changes of [
+    [{ type: "move", branch: "capped", parent: "descendant" }],
+    [{ type: "move", branch: "root", parent: "capped" }],
+    [{ type: "move", branch: "live", parent: "capped" }],
+    [{ type: "archive", branch: "root" }],
+  ]) {
+    assert.throws(
+      () => store.change(head, changes),
+      error => error instanceof SpineTreeChangeError && error.code === "invalid-change",
+    );
+    assert.equal(store.head(), head);
+  }
+  const result = store.change(head, [{ type: "archive", branch: "capped" }]);
+  assert.equal(result.parent, head);
+  assert.equal(store.readSnapshot(result.head).branches.capped.status, "archived");
 });
