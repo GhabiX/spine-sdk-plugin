@@ -32,6 +32,8 @@ export interface SpineTreeAgent {
 export interface SpineTreeSnapshot {
   readonly branches: Readonly<Record<string, SpineTreeBranch>>;
   readonly agents: Readonly<Record<string, SpineTreeAgent>>;
+  readonly registry?: Readonly<Record<string, SpineTreeAgentBinding>>;
+  readonly mailbox?: SpineTreeMailboxState;
 }
 
 type DraftSpineTreeBranch = { -readonly [Key in keyof SpineTreeBranch]: SpineTreeBranch[Key] };
@@ -39,6 +41,19 @@ type DraftSpineTreeBranch = { -readonly [Key in keyof SpineTreeBranch]: SpineTre
 export interface SpineTreeSnapshotStore {
   head(): string | Promise<string>;
   readSnapshot(head: string): SpineTreeSnapshot | Promise<SpineTreeSnapshot>;
+}
+
+export interface SpineTreeSnapshotCommit {
+  readonly parent: string;
+  readonly head: string;
+}
+
+export interface SpineTreeSnapshotCommitStore extends SpineTreeSnapshotStore {
+  commitSnapshot(
+    expectedHead: string,
+    snapshot: SpineTreeSnapshot,
+    message?: string,
+  ): SpineTreeSnapshotCommit | Promise<SpineTreeSnapshotCommit>;
 }
 
 export type SpineTreeChange =
@@ -66,8 +81,8 @@ export interface SpineTreeAgentBinding {
 }
 
 export interface SpineTreeAgentRegistry {
-  register(binding: SpineTreeAgentBinding): void;
-  resolve(agentId: string): SpineTreeAgentBinding | undefined;
+  register(binding: SpineTreeAgentBinding): void | Promise<void>;
+  resolve(agentId: string): SpineTreeAgentBinding | undefined | Promise<SpineTreeAgentBinding | undefined>;
 }
 
 export class MemoryAgentRegistry implements SpineTreeAgentRegistry {
@@ -83,6 +98,41 @@ export class MemoryAgentRegistry implements SpineTreeAgentRegistry {
 
   resolve(agentId: string): SpineTreeAgentBinding | undefined {
     const binding = this.#bindings.get(agentId);
+    return binding === undefined ? undefined : clone(binding);
+  }
+}
+
+/** A registry persisted in the same immutable snapshot/HEAD as the tree. */
+export class GitSpineTreeAgentRegistry implements SpineTreeAgentRegistry {
+  readonly store: SpineTreeSnapshotCommitStore;
+  readonly #maxCasRetries: number;
+
+  constructor(storeOrRoot: SpineTreeSnapshotCommitStore | string, options: { maxCasRetries?: number } = {}) {
+    this.store = asCommitStore(storeOrRoot);
+    this.#maxCasRetries = validateCasRetries(options.maxCasRetries);
+  }
+
+  async register(binding: SpineTreeAgentBinding): Promise<void> {
+    validateBinding(binding);
+    await mutateSnapshotWithRetry(
+      this.store,
+      this.#maxCasRetries,
+      "spinetree: registry register",
+      snapshot => {
+        const registry = { ...(snapshot.registry ?? {}) };
+        if (registry[binding.agentId] !== undefined) {
+          throw new SpineTreeRegistryError("duplicate-agent", `Agent ${binding.agentId} is already registered`);
+        }
+        registry[binding.agentId] = clone(binding);
+        return { snapshot: { ...snapshot, registry }, value: undefined };
+      },
+    );
+  }
+
+  async resolve(agentId: string): Promise<SpineTreeAgentBinding | undefined> {
+    const head = await this.store.head();
+    const snapshot = await this.store.readSnapshot(head);
+    const binding = snapshot.registry?.[agentId];
     return binding === undefined ? undefined : clone(binding);
   }
 }
@@ -113,6 +163,13 @@ export interface SpineTreeReceipt {
   readonly lastError: string | null;
 }
 
+export interface SpineTreeMailboxState {
+  readonly sequence: number;
+  readonly leaseSequence: number;
+  readonly receipts: Readonly<Record<string, SpineTreeReceipt>>;
+  readonly requestIds: Readonly<Record<string, string>>;
+}
+
 export interface SpineTreeMailboxInput {
   readonly to: string;
   readonly from: string | null;
@@ -121,12 +178,12 @@ export interface SpineTreeMailboxInput {
 }
 
 export interface SpineTreeMailbox {
-  enqueue(input: SpineTreeMailboxInput): SpineTreeReceipt;
-  lease(receiptId: string): SpineTreeReceipt;
-  delivered(receiptId: string, leaseId: string): SpineTreeReceipt;
-  release(receiptId: string, leaseId: string, error: string): SpineTreeReceipt;
-  fail(receiptId: string, leaseId: string, error: string): SpineTreeReceipt;
-  observed(receiptId: string): SpineTreeReceipt;
+  enqueue(input: SpineTreeMailboxInput): SpineTreeReceipt | Promise<SpineTreeReceipt>;
+  lease(receiptId: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
+  delivered(receiptId: string, leaseId: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
+  release(receiptId: string, leaseId: string, error: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
+  fail(receiptId: string, leaseId: string, error: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
+  observed(receiptId: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
 }
 
 export class SpineTreeMailboxError extends Error {
@@ -260,6 +317,151 @@ export class MemorySpineTreeMailbox implements SpineTreeMailbox {
   }
 }
 
+/** A mailbox persisted in the same immutable snapshot/HEAD as the tree. */
+export class GitSpineTreeMailbox implements SpineTreeMailbox {
+  readonly store: SpineTreeSnapshotCommitStore;
+  readonly #maxCasRetries: number;
+
+  constructor(storeOrRoot: SpineTreeSnapshotCommitStore | string, options: { maxCasRetries?: number } = {}) {
+    this.store = asCommitStore(storeOrRoot);
+    this.#maxCasRetries = validateCasRetries(options.maxCasRetries);
+  }
+
+  async enqueue(input: SpineTreeMailboxInput): Promise<SpineTreeReceipt> {
+    validateMailboxInput(input);
+    return mutateSnapshotWithRetry(
+      this.store,
+      this.#maxCasRetries,
+      "spinetree: mailbox enqueue",
+      snapshot => {
+        const state = mailboxState(snapshot.mailbox);
+        if (input.requestId !== undefined) {
+          const existingId = state.requestIds[input.requestId];
+          if (existingId !== undefined) {
+            const existing = receiptFromState(state, existingId);
+            if (existing.to !== input.to || existing.from !== input.from || existing.message !== input.message) {
+              throw new SpineTreeMailboxError("invalid-state", `Request ${input.requestId} is already bound to another message`);
+            }
+            return { snapshot, value: existing };
+          }
+        }
+        const receipt: SpineTreeReceipt = {
+          id: `mail-${state.sequence + 1}`,
+          to: input.to,
+          from: input.from,
+          message: input.message,
+          ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+          status: "queued",
+          attempt: 0,
+          leaseId: null,
+          leaseUntil: null,
+          nextAttemptAt: null,
+          lastError: null,
+        };
+        state.sequence += 1;
+        state.receipts[receipt.id] = receipt;
+        if (input.requestId !== undefined) state.requestIds[input.requestId] = receipt.id;
+        return { snapshot: { ...snapshot, mailbox: state }, value: clone(receipt) };
+      },
+    );
+  }
+
+  async lease(receiptId: string): Promise<SpineTreeReceipt> {
+    return mutateSnapshotWithRetry(
+      this.store,
+      this.#maxCasRetries,
+      "spinetree: mailbox lease",
+      snapshot => {
+        const state = mailboxState(snapshot.mailbox);
+        const receipt = receiptFromState(state, receiptId);
+        if (receipt.status === "delivered" || receipt.status === "observed" || receipt.status === "failed") {
+          throw new SpineTreeMailboxError("invalid-state", `Receipt ${receiptId} cannot be leased from ${receipt.status}`);
+        }
+        if (receipt.status === "leased" && receipt.leaseUntil !== null && receipt.leaseUntil > Date.now()) {
+          throw new SpineTreeMailboxError("lease-conflict", `Receipt ${receiptId} is already leased`);
+        }
+        const next: SpineTreeReceipt = {
+          ...receipt,
+          status: "leased",
+          attempt: receipt.attempt + 1,
+          leaseId: `lease-${state.leaseSequence + 1}`,
+          leaseUntil: Date.now() + 30_000,
+          nextAttemptAt: null,
+        };
+        state.leaseSequence += 1;
+        state.receipts[receiptId] = next;
+        return { snapshot: { ...snapshot, mailbox: state }, value: clone(next) };
+      },
+    );
+  }
+
+  async delivered(receiptId: string, leaseId: string): Promise<SpineTreeReceipt> {
+    return this.#leaseMutation(receiptId, leaseId, "delivered", null, "spinetree: mailbox delivered");
+  }
+
+  async release(receiptId: string, leaseId: string, error: string): Promise<SpineTreeReceipt> {
+    return this.#leaseMutation(receiptId, leaseId, "queued", error, "spinetree: mailbox release");
+  }
+
+  async fail(receiptId: string, leaseId: string, error: string): Promise<SpineTreeReceipt> {
+    return this.#leaseMutation(receiptId, leaseId, "failed", error, "spinetree: mailbox fail");
+  }
+
+  async observed(receiptId: string): Promise<SpineTreeReceipt> {
+    return mutateSnapshotWithRetry(
+      this.store,
+      this.#maxCasRetries,
+      "spinetree: mailbox observed",
+      snapshot => {
+        const state = mailboxState(snapshot.mailbox);
+        const receipt = receiptFromState(state, receiptId);
+        if (receipt.status === "observed") return { snapshot, value: receipt };
+        if (receipt.status !== "delivered") {
+          throw new SpineTreeMailboxError("invalid-state", `Receipt ${receiptId} cannot be observed from ${receipt.status}`);
+        }
+        const next = { ...receipt, status: "observed" as const };
+        state.receipts[receiptId] = next;
+        return { snapshot: { ...snapshot, mailbox: state }, value: clone(next) };
+      },
+    );
+  }
+
+  async receipt(receiptId: string): Promise<SpineTreeReceipt> {
+    const head = await this.store.head();
+    const snapshot = await this.store.readSnapshot(head);
+    return receiptFromState(mailboxState(snapshot.mailbox), receiptId);
+  }
+
+  async #leaseMutation(
+    receiptId: string,
+    leaseId: string,
+    status: "queued" | "delivered" | "failed",
+    error: string | null,
+    message: string,
+  ): Promise<SpineTreeReceipt> {
+    return mutateSnapshotWithRetry(
+      this.store,
+      this.#maxCasRetries,
+      message,
+      snapshot => {
+        const state = mailboxState(snapshot.mailbox);
+        const receipt = receiptFromState(state, receiptId);
+        requireLease(receipt, receiptId, leaseId);
+        const next: SpineTreeReceipt = {
+          ...receipt,
+          status,
+          leaseId: null,
+          leaseUntil: null,
+          nextAttemptAt: status === "queued" ? Date.now() : null,
+          lastError: error,
+        };
+        state.receipts[receiptId] = next;
+        return { snapshot: { ...snapshot, mailbox: state }, value: clone(next) };
+      },
+    );
+  }
+}
+
 export class SpineTreeChangeError extends Error {
   readonly code: "invalid-input" | "invalid-change" | "unknown-branch" | "unknown-head" | "stale-head";
 
@@ -309,15 +511,27 @@ export class MemorySpineTreeStore implements SpineTreeChangeStore {
     const draft = clone(current);
     applyChanges(draft, changes);
     const parent = this.#head;
-    const head = `memory-${++this.#revision}`;
-    this.#snapshots.set(head, clone(draft));
-    this.#head = head;
+    const committed = this.commitSnapshot(parent, draft, "spinetree: change");
     return {
       schema: SPINETREE_CHANGE_RESULT_SCHEMA,
       parent,
-      head,
+      head: committed.head,
       changes: clone(changes),
     };
+  }
+
+  commitSnapshot(expectedHead: string, snapshot: SpineTreeSnapshot, _message = "spinetree: state"): SpineTreeSnapshotCommit {
+    if (expectedHead !== this.#head) {
+      throw new SpineTreeChangeError(
+        "stale-head",
+        `SpineTree HEAD changed: expected ${expectedHead}, found ${this.#head}`,
+      );
+    }
+    const parent = this.#head;
+    const head = `memory-${++this.#revision}`;
+    this.#snapshots.set(head, clone(snapshot));
+    this.#head = head;
+    return { parent, head };
   }
 }
 
@@ -401,7 +615,25 @@ export class GitSpineTreeStore implements SpineTreeChangeStore {
     }
     const draft = clone(this.readSnapshot(expectedHead));
     applyChanges(draft, changes);
-    const nextHead = this.#commitSnapshot(draft, "spinetree: change", expectedHead);
+    const committed = this.commitSnapshot(expectedHead, draft, "spinetree: change");
+    return {
+      schema: SPINETREE_CHANGE_RESULT_SCHEMA,
+      parent: expectedHead,
+      head: committed.head,
+      changes: clone(changes),
+    };
+  }
+
+  commitSnapshot(expectedHead: string, snapshot: SpineTreeSnapshot, message = "spinetree: state"): SpineTreeSnapshotCommit {
+    validateGitHead(expectedHead);
+    const currentHead = this.head();
+    if (currentHead !== expectedHead) {
+      throw new SpineTreeChangeError(
+        "stale-head",
+        `SpineTree HEAD changed: expected ${expectedHead}, found ${currentHead}`,
+      );
+    }
+    const nextHead = this.#commitSnapshot(snapshot, message, expectedHead);
     try {
       runGit(this.root, ["update-ref", "HEAD", nextHead, expectedHead]);
     } catch (error) {
@@ -414,12 +646,7 @@ export class GitSpineTreeStore implements SpineTreeChangeStore {
       }
       throw new SpineTreeGitStoreError("git-error", `Unable to publish SpineTree HEAD: ${formatError(error)}`);
     }
-    return {
-      schema: SPINETREE_CHANGE_RESULT_SCHEMA,
-      parent: expectedHead,
-      head: nextHead,
-      changes: clone(changes),
-    };
+    return { parent: expectedHead, head: nextHead };
   }
 
   #commitSnapshot(snapshot: SpineTreeSnapshot, message: string, parent: string | null): string {
@@ -563,7 +790,7 @@ function sendTool(
     description: "Queue and deliver a message to a registered Agent through its Pi session",
     execute: async (input: unknown) => {
       const parsed = parseSendInput(input);
-      const target = registry.resolve(parsed.to);
+      const target = await registry.resolve(parsed.to);
       if (target === undefined) {
         throw new SpineTreeSendError("unknown-recipient", `Unknown Agent ${parsed.to}`);
       }
@@ -571,13 +798,13 @@ function sendTool(
         throw new SpineTreeSendError("recipient-ended", `Agent ${parsed.to} has ended`);
       }
       if (parsed.from !== undefined) {
-        const source = registry.resolve(parsed.from);
+        const source = await registry.resolve(parsed.from);
         if (source === undefined) throw new SpineTreeSendError("unknown-recipient", `Unknown Agent ${parsed.from}`);
         if (source.status === "ended") throw new SpineTreeSendError("recipient-ended", `Agent ${parsed.from} has ended`);
       }
       let receipt: SpineTreeReceipt;
       try {
-        receipt = mailbox.enqueue({
+        receipt = await mailbox.enqueue({
           to: parsed.to,
           from: parsed.from ?? null,
           message: parsed.message,
@@ -586,7 +813,7 @@ function sendTool(
         if (receipt.status === "delivered" || receipt.status === "observed" || receipt.status === "failed") {
           return sendResult(receipt, target.sessionId);
         }
-        const leased = mailbox.lease(receipt.id);
+        const leased = await mailbox.lease(receipt.id);
         try {
           const response = await context.sessions.request({
             targetSessionId: target.sessionId,
@@ -595,15 +822,15 @@ function sendTool(
             requestId: receipt.id,
           });
           if (response.accepted) {
-            receipt = mailbox.delivered(leased.id, leased.leaseId!);
+            receipt = await mailbox.delivered(leased.id, leased.leaseId!);
           } else {
-            receipt = mailbox.release(leased.id, leased.leaseId!, "session request was not accepted");
+            receipt = await mailbox.release(leased.id, leased.leaseId!, "session request was not accepted");
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           receipt = isPermanentError(error)
-            ? mailbox.fail(leased.id, leased.leaseId!, message)
-            : mailbox.release(leased.id, leased.leaseId!, message);
+            ? await mailbox.fail(leased.id, leased.leaseId!, message)
+            : await mailbox.release(leased.id, leased.leaseId!, message);
         }
         return sendResult(receipt, target.sessionId);
       } catch (error) {
@@ -714,6 +941,93 @@ function parseChangeInput(input: unknown): { expectedHead: string; changes: read
 
 function isChangeStore(store: SpineTreeSnapshotStore): store is SpineTreeChangeStore {
   return typeof (store as Partial<SpineTreeChangeStore>).change === "function";
+}
+
+function asCommitStore(storeOrRoot: SpineTreeSnapshotCommitStore | string): SpineTreeSnapshotCommitStore {
+  if (typeof storeOrRoot === "string") return new GitSpineTreeStore(storeOrRoot);
+  if (storeOrRoot !== null && typeof storeOrRoot.commitSnapshot === "function") return storeOrRoot;
+  throw new TypeError("SpineTree persistent adapters require a commit-capable snapshot store");
+}
+
+function validateCasRetries(value: number | undefined): number {
+  if (value === undefined) return 8;
+  if (!Number.isInteger(value) || value < 1) throw new TypeError("maxCasRetries must be a positive integer");
+  return value;
+}
+
+interface MutableMailboxState {
+  sequence: number;
+  leaseSequence: number;
+  receipts: Record<string, SpineTreeReceipt>;
+  requestIds: Record<string, string>;
+}
+
+function mailboxState(value: SpineTreeMailboxState | undefined): MutableMailboxState {
+  if (value === undefined) return { sequence: 0, leaseSequence: 0, receipts: {}, requestIds: {} };
+  if (
+    !Number.isInteger(value.sequence) || value.sequence < 0 ||
+    !Number.isInteger(value.leaseSequence) || value.leaseSequence < 0 ||
+    !isRecord(value.receipts) || !isRecord(value.requestIds)
+  ) {
+    throw new SpineTreeMailboxError("invalid-state", "Invalid persisted SpineTree mailbox state");
+  }
+  return {
+    sequence: value.sequence,
+    leaseSequence: value.leaseSequence,
+    receipts: clone(value.receipts) as Record<string, SpineTreeReceipt>,
+    requestIds: clone(value.requestIds) as Record<string, string>,
+  };
+}
+
+function validateMailboxInput(input: SpineTreeMailboxInput): void {
+  if (
+    input === null || typeof input !== "object" ||
+    typeof input.to !== "string" || input.to.length === 0 ||
+    typeof input.message !== "string" || input.message.length === 0 ||
+    (input.from !== null && (typeof input.from !== "string" || input.from.length === 0)) ||
+    (input.requestId !== undefined && (typeof input.requestId !== "string" || input.requestId.length === 0))
+  ) {
+    throw new SpineTreeMailboxError("invalid-state", "Mailbox input requires non-empty to/message and valid from/requestId");
+  }
+}
+
+function receiptFromState(state: MutableMailboxState, receiptId: string): SpineTreeReceipt {
+  const receipt = state.receipts[receiptId];
+  if (receipt === undefined) throw new SpineTreeMailboxError("unknown-receipt", `Unknown receipt ${receiptId}`);
+  return clone(receipt);
+}
+
+function requireLease(receipt: SpineTreeReceipt, receiptId: string, leaseId: string): void {
+  if (receipt.status !== "leased" || receipt.leaseId !== leaseId) {
+    throw new SpineTreeMailboxError("lease-conflict", `Lease ${leaseId} does not own receipt ${receiptId}`);
+  }
+}
+
+async function mutateSnapshotWithRetry<T>(
+  store: SpineTreeSnapshotCommitStore,
+  maxCasRetries: number,
+  message: string,
+  mutate: (snapshot: SpineTreeSnapshot) => { snapshot: SpineTreeSnapshot; value: T },
+): Promise<T> {
+  let lastStale: unknown;
+  for (let attempt = 0; attempt < maxCasRetries; attempt += 1) {
+    const head = await store.head();
+    const snapshot = await store.readSnapshot(head);
+    const result = mutate(snapshot);
+    if (result.snapshot === snapshot) return result.value;
+    try {
+      await store.commitSnapshot(head, result.snapshot, message);
+      return result.value;
+    } catch (error) {
+      if (!isStaleHead(error)) throw error;
+      lastStale = error;
+    }
+  }
+  throw lastStale ?? new SpineTreeChangeError("stale-head", "SpineTree snapshot changed during persistent mutation");
+}
+
+function isStaleHead(error: unknown): boolean {
+  return error instanceof SpineTreeChangeError && error.code === "stale-head";
 }
 
 const CHANGEABLE_ATTRIBUTES = new Set(["goal", "constraints", "skills", "tools"]);

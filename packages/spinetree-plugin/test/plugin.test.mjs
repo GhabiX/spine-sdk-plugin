@@ -15,7 +15,9 @@ import {
   SpineTreeChangeError,
   SpineTreeReadError,
   MemoryAgentRegistry,
+  GitSpineTreeAgentRegistry,
   MemorySpineTreeMailbox,
+  GitSpineTreeMailbox,
   SpineTreeRegistryError,
   SpineTreeSendError,
   SPINETREE_SEND_RESULT_SCHEMA,
@@ -449,6 +451,164 @@ test("Git snapshot validation and failed batches do not move HEAD", async () => 
   assert.throws(
     () => new GitSpineTreeStore(join(root, "missing")),
     error => error instanceof SpineTreeGitStoreError && error.code === "not-initialized",
+  );
+});
+
+test("Git registry survives reload and preserves concurrent registrations", async () => {
+  const snapshot = {
+    branches: {
+      root: {
+        id: "root", parent: null, goal: "project", constraints: [], skills: [], tools: [],
+        memory: null, memoryVersion: 0, memorySource: null, status: "capped",
+      },
+    },
+    agents: {},
+  };
+  const root = await mkdtemp(join(tmpdir(), "spinetree-git-registry-"));
+  const store = GitSpineTreeStore.initialize(root, snapshot);
+  const registry = new GitSpineTreeAgentRegistry(store);
+  await registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "root", status: "running" });
+
+  const childScript = `
+    import { GitSpineTreeAgentRegistry } from './dist/index.js';
+    const registry = new GitSpineTreeAgentRegistry(process.env.SPINE_ROOT);
+    await registry.register({ agentId: 'agent-2', sessionId: 'session-2', branch: 'root', status: 'paused' });
+  `;
+  execFileSync(process.execPath, ["--input-type=module", "-e", childScript], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    env: { ...process.env, SPINE_ROOT: root },
+  });
+
+  const reloaded = new GitSpineTreeAgentRegistry(new GitSpineTreeStore(root));
+  assert.deepEqual(await reloaded.resolve("agent-1"), {
+    agentId: "agent-1", sessionId: "session-1", branch: "root", status: "running",
+  });
+  assert.deepEqual(await reloaded.resolve("agent-2"), {
+    agentId: "agent-2", sessionId: "session-2", branch: "root", status: "paused",
+  });
+  await assert.rejects(
+    reloaded.register({ agentId: "agent-1", sessionId: "other", branch: "root", status: "running" }),
+    error => error instanceof SpineTreeRegistryError && error.code === "duplicate-agent",
+  );
+});
+
+test("Git mailbox persists receipts, leases and idempotency across reload", async () => {
+  const snapshot = {
+    branches: {
+      root: {
+        id: "root", parent: null, goal: "project", constraints: [], skills: [], tools: [],
+        memory: null, memoryVersion: 0, memorySource: null, status: "capped",
+      },
+    },
+    agents: {},
+  };
+  const root = await mkdtemp(join(tmpdir(), "spinetree-git-mailbox-"));
+  const store = GitSpineTreeStore.initialize(root, snapshot);
+  const mailbox = new GitSpineTreeMailbox(store);
+  const queued = await mailbox.enqueue({ to: "agent-1", from: null, message: "hello", requestId: "req-1" });
+  assert.equal(queued.id, "mail-1");
+
+  const reloaded = new GitSpineTreeMailbox(new GitSpineTreeStore(root));
+  assert.deepEqual(await reloaded.enqueue({ to: "agent-1", from: null, message: "hello", requestId: "req-1" }), queued);
+  const leased = await reloaded.lease(queued.id);
+  assert.equal(leased.status, "leased");
+  assert.equal(leased.attempt, 1);
+  const delivered = await mailbox.delivered(leased.id, leased.leaseId);
+  assert.equal(delivered.status, "delivered");
+  assert.equal((await reloaded.receipt(leased.id)).status, "delivered");
+  assert.equal((await reloaded.observed(leased.id)).status, "observed");
+  await assert.rejects(
+    reloaded.lease(leased.id),
+    error => error.code === "invalid-state",
+  );
+});
+
+test("Git mailbox reclaims an expired lease with a new lease ID", async () => {
+  const snapshot = {
+    branches: {
+      root: {
+        id: "root", parent: null, goal: "project", constraints: [], skills: [], tools: [],
+        memory: null, memoryVersion: 0, memorySource: null, status: "capped",
+      },
+    },
+    agents: {},
+  };
+  const root = await mkdtemp(join(tmpdir(), "spinetree-git-mailbox-expired-"));
+  const store = GitSpineTreeStore.initialize(root, snapshot);
+  const mailbox = new GitSpineTreeMailbox(store);
+  const queued = await mailbox.enqueue({ to: "agent-1", from: null, message: "retry" });
+  const leased = await mailbox.lease(queued.id);
+  const head = store.head();
+  const current = store.readSnapshot(head);
+  const expired = {
+    ...current,
+    mailbox: {
+      ...current.mailbox,
+      receipts: {
+        ...current.mailbox.receipts,
+        [leased.id]: { ...leased, leaseUntil: Date.now() - 1 },
+      },
+    },
+  };
+  store.commitSnapshot(head, expired, "test: expire mailbox lease");
+  const reclaimed = await new GitSpineTreeMailbox(store).lease(leased.id);
+  assert.equal(reclaimed.status, "leased");
+  assert.equal(reclaimed.attempt, 2);
+  assert.notEqual(reclaimed.leaseId, leased.leaseId);
+});
+
+test("wires Git registry and mailbox persistence through the SpineTree send tool", async () => {
+  const snapshot = {
+    branches: {
+      root: {
+        id: "root", parent: null, goal: "project", constraints: [], skills: [], tools: [],
+        memory: null, memoryVersion: 0, memorySource: null, status: "capped",
+      },
+    },
+    agents: {},
+  };
+  const root = await mkdtemp(join(tmpdir(), "spinetree-git-send-"));
+  const store = GitSpineTreeStore.initialize(root, snapshot);
+  const registry = new GitSpineTreeAgentRegistry(store);
+  const mailbox = new GitSpineTreeMailbox(store);
+  await registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "root", status: "running" });
+
+  const requests = [];
+  const host = new SpinePluginHost({
+    sessions: {
+      async request(request) {
+        requests.push(request);
+        return { accepted: true };
+      },
+    },
+  });
+  host.register(canonicalPlugin);
+  host.register(createSpineTreePlugin({ store, registry, mailbox }));
+  await host.activateAll();
+
+  const result = await host.executeTool("spinetree_send", {
+    to: "agent-1", message: "persisted hello", requestId: "req-persisted",
+  });
+  assert.equal(result.status, "delivered");
+  assert.deepEqual(requests, [{
+    targetSessionId: "session-1",
+    operation: "prompt",
+    text: "persisted hello",
+    requestId: "mail-1",
+  }]);
+  await host.dispose();
+
+  const reloadedRegistry = new GitSpineTreeAgentRegistry(new GitSpineTreeStore(root));
+  const reloadedMailbox = new GitSpineTreeMailbox(new GitSpineTreeStore(root));
+  assert.deepEqual(await reloadedRegistry.resolve("agent-1"), {
+    agentId: "agent-1", sessionId: "session-1", branch: "root", status: "running",
+  });
+  assert.equal((await reloadedMailbox.receipt("mail-1")).status, "delivered");
+  assert.deepEqual(
+    await reloadedMailbox.enqueue({
+      to: "agent-1", from: null, message: "persisted hello", requestId: "req-persisted",
+    }),
+    result.receipt,
   );
 });
 

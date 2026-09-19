@@ -38,6 +38,35 @@ current `spine-core` implementation remains in SpineCodex and is identified by
   AgentId addresses are resolved to PiSession IDs, receipts are leased before
   `sessions.request`, and rejected or transiently failed delivery returns the
   receipt to `queued`.
+
+  Registry and mailbox persistence use the same immutable snapshot and HEAD as
+  the ProjectBranch tree. The application creates and initializes one
+  `GitSpineTreeStore`, then passes adapters built from that store to the plugin:
+
+  ```ts
+  import {
+    GitSpineTreeAgentRegistry,
+    GitSpineTreeMailbox,
+    GitSpineTreeStore,
+    createSpineTreePlugin,
+  } from "@spinetree/plugin";
+  import { SpinePluginHost } from "@spinejit/spine-host";
+
+  const store = GitSpineTreeStore.initialize("./.spinetree", initialSnapshot);
+  const host = new SpinePluginHost({ sessions });
+  host.register(createSpineTreePlugin({
+    store,
+    registry: new GitSpineTreeAgentRegistry(store),
+    mailbox: new GitSpineTreeMailbox(store),
+  }));
+  ```
+
+  `registry` and `mailbox` are written into the committed snapshot fields of
+  the same Git history. Each mutation reads the current HEAD and publishes with
+  expected-HEAD CAS; a concurrent writer is retried against its new snapshot,
+  while an exhausted retry budget returns a typed stale-head error. The plugin
+  never creates `.spinetree`, starts a Git process on its own, or turns the
+  host's private storage into persistence.
 - `fixtures/conformance`: host-neutral semantic traces.
 - `tests`: native/WASM, recovery, and cross-host equivalence gates.
 
