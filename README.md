@@ -141,6 +141,16 @@ not consume queued receipts or run a background worker. Tests cover the
 adapter and mailbox with simulated leases; actual Pi Server/Client transport
 integration remains to be verified.
 
+`dispatchSpineTreeMailbox({ registry, mailbox, sessions, limit })` is an
+explicit, caller-driven recovery pass for persisted work. It reads at most
+`limit` due `queued` receipts and expired leases in enqueue order, acquires
+each lease once, and routes the receipt through the same Pi session request
+path as `spinetree_send`. Missing or ended Agents become `failed`; rejected
+or transiently failed requests return to `queued`; lease races are reported
+in `skipped`. The function does not start a worker, schedule itself, or add a
+model-visible tool. Lease expiry and lost acknowledgements can still cause
+duplicate remote delivery, so the caller controls when to run another pass.
+
 ## Pi extension
 
 `@spinejit/spine-plugin` declares its loadable entry in `pi.extensions`; the
