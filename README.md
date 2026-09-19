@@ -52,15 +52,53 @@ Pi remains the outer host. `@spinejit/spine-host` is a thin contract inside
 that host, not another process or runtime. `@spinejit/spine-plugin` is the
 single `spine.canonical` owner for Scope transitions, sampling, projection,
 compaction, recovery, and Spawn. `@spinetree/plugin` is an ordinary contributor
-that currently exposes contract-only `spinetree_*` tools and a namespaced
-status command. The host rejects duplicate owner slots and namespaces, gives
-each plugin private storage, and orders activation by manifest dependencies.
+that exposes `spinetree_*` tools and a namespaced status command. Without
+explicit adapters its tools remain contract-only. The host rejects duplicate
+owner slots and namespaces, gives each plugin private storage, and orders
+activation by manifest dependencies.
 The current contract only implements owner claims; event observation and
 session requests are host services, not separate capability kinds. The
 SpineTree plugin's in-memory change store and registry/mailbox remain testable
 adapter boundaries. `GitSpineTreeStore` is an explicit Git-backed
 `.spinetree` persistence adapter; no Pi launcher creates or attaches one by
 default.
+
+### Pi session requests
+
+The optional `@spinejit/spine-host/pi` export provides
+`createPiSessionAdapter(resolveSession)`. Supply a resolver for caller-owned
+PiClient `SessionLease` objects, indexed by Pi session ID:
+
+```ts
+import { SpinePluginHost } from "@spinejit/spine-host";
+import { createPiSessionAdapter, type PiSessionLease } from "@spinejit/spine-host/pi";
+
+// Populate this map with active leases acquired by the application.
+const leases = new Map<string, PiSessionLease>();
+const host = new SpinePluginHost({
+  sessions: createPiSessionAdapter(sessionId => leases.get(sessionId)),
+});
+```
+
+The application owns PiClient connection, authentication, lease acquisition,
+disposal and reconnection. The adapter checks the session ID and active lease,
+then awaits `prompt(text)` or `steer(text)`. Successful resolution returns
+`accepted: true`; a missing/inactive lease or a Pi command's `busy` or
+`session_locked` error returns `accepted: false`. Other errors propagate
+unchanged. The adapter adds no transport or connection lifecycle.
+
+When used with explicit SpineTree registry/mailbox adapters, `spinetree_send`
+routes AgentId to the corresponding Pi session, keeps the receipt leased while
+`prompt` is pending, and marks it delivered when the command resolves. Rejected
+requests and ordinary errors return to `queued`; errors explicitly marked
+`permanent: true` produce `failed` under the existing mailbox policy.
+Retrying the same caller requestId reuses its receipt. There is no automatic
+retry worker. `requestId` is echoed only in the local Host response: Pi's
+prompt/steer commands do not accept this mailbox ID. A lost acknowledgement
+may therefore cause duplicate remote delivery on retry. `delivered` does not
+mean the model observed the message, and this adapter never marks `observed`.
+Tests cover the adapter and mailbox with simulated leases; actual Pi
+Server/Client transport integration remains to be verified.
 
 ## Pi extension
 
