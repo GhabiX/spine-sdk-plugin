@@ -3,6 +3,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { PiSessionAdapter, PluginManifest, PluginTool, SpinePlugin, SpinePluginContext } from "@spinejit/spine-host";
 import { toolContracts } from "./tool-contracts.js";
+import type { SpineTreeScopeBinding, SpineTreeScopeWatermark } from "./scopes.js";
+export * from "./scopes.js";
 
 export const SPINETREE_READ_RESULT_SCHEMA = "spinetree.read.result/v2" as const;
 export const SPINETREE_CHANGE_RESULT_SCHEMA = "spinetree.change.result/v1" as const;
@@ -20,6 +22,7 @@ export interface SpineTreeBranch {
   readonly memoryVersion: number;
   readonly memorySource: unknown;
   readonly status: string;
+  readonly scopeBinding?: SpineTreeScopeBinding;
   readonly [key: string]: unknown;
 }
 
@@ -36,6 +39,7 @@ export interface SpineTreeSnapshot {
   readonly agents: Readonly<Record<string, SpineTreeAgent>>;
   readonly registry?: Readonly<Record<string, SpineTreeAgentBinding>>;
   readonly mailbox?: SpineTreeMailboxState;
+  readonly scopeImports?: Readonly<Record<string, SpineTreeScopeWatermark>>;
 }
 
 type DraftSpineTreeBranch = { -readonly [Key in keyof SpineTreeBranch]: SpineTreeBranch[Key] };
@@ -214,7 +218,7 @@ export class GitSpineTreeAgentRegistry implements SpineTreeAgentLifecycleRegistr
         if (registry[binding.agentId] !== undefined) {
           throw new SpineTreeRegistryError("duplicate-agent", `Agent ${binding.agentId} is already registered`);
         }
-        if (Object.values(registry).some(existing => existing.branch === binding.branch && existing.status !== "ended")) {
+        if (activeBranchBindings(snapshot, binding.branch).length > 0) {
           throw new SpineTreeRegistryError("branch-occupied", `ProjectBranch ${binding.branch} already has an active Agent`);
         }
         registry[binding.agentId] = clone(binding);
@@ -1625,13 +1629,24 @@ function overlay(path: readonly SpineTreeBranch[], key: "skills" | "tools"): Spi
 }
 
 function binding(snapshot: SpineTreeSnapshot, branchId: string): SpineTreeBinding | null {
-  const bindings = Object.values(snapshot.registry ?? {}).filter(
-    candidate => candidate.status !== "ended" && candidate.branch === branchId,
-  );
+  const branch = snapshot.branches[branchId]!;
+  if (branch.scopeBinding !== undefined && branch.status !== "live") return null;
+  const bindings = activeBranchBindings(snapshot, branchId);
   if (bindings.length > 1) {
     throw new SpineTreeReadError("ambiguous-binding", `ProjectBranch ${branchId} has multiple active Agents`);
   }
   return bindings[0] === undefined ? null : clone(bindings[0]);
+}
+
+/** Scope ownership supplements the Agent's immutable home-branch identity. */
+function activeBranchBindings(snapshot: SpineTreeSnapshot, branchId: string): SpineTreeAgentBinding[] {
+  const branch = snapshot.branches[branchId];
+  const mapped = branch?.scopeBinding;
+  return Object.values(snapshot.registry ?? {}).filter(candidate => {
+    if (candidate.status === "ended") return false;
+    return candidate.branch === branchId || (candidate.agentId === mapped?.agentId &&
+      branch?.status === "live" && candidate.sessionId === mapped.sessionId);
+  });
 }
 
 function validateGitHead(head: string): void {
