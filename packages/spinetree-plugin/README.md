@@ -107,6 +107,13 @@ can be selected. Unselected scopes stay local. On each subsequent commit, pass a
 empty selection to refresh known mappings, or add explicit selections for new work.
 The Agent must exist in the same snapshot registry and belong to this Pi session.
 
+Callers may instead pass `alignment: "one-to-one"` and omit `selections`. The
+importer maps canonical Task nodes by depth, reuses the Agent home branch for the
+first unmapped root Task, and creates nested ProjectBranches under their mapped
+canonical parent. The result contains generated UUIDs. Replaying the same
+alignment receipt is write-free and returns the persisted UUIDs; generated IDs
+are not part of the input fingerprint.
+
 Each branch stores `scopeBinding: { agentId, sessionId, thread, epoch, nodeId }`.
 Live/Opened scopes keep the project branch live. Closed/Compacted scopes cap it
 and copy the complete canonical `MemorySlot[]` with a single `memoryVersion`

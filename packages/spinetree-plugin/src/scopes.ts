@@ -22,6 +22,10 @@ export type SpineTreeScopeSelection =
   | { readonly nodeId: readonly number[]; readonly parent: string; readonly branch?: never }
   | { readonly nodeId: readonly number[]; readonly branch: string; readonly parent?: never };
 
+type SpineTreeAlignedSelection =
+  | SpineTreeScopeSelection
+  | { readonly nodeId: readonly number[]; readonly parentNodeId: readonly number[] };
+
 export interface SpineTreeScopeMapping {
   readonly nodeId: readonly number[];
   readonly branch: string;
@@ -43,7 +47,9 @@ export interface SpineTreeScopeCommitInput {
   /** Public result of an already committed canonical sampling transaction. */
   readonly record: SamplingCommit;
   readonly projection: SpineProjection;
-  readonly selections: readonly SpineTreeScopeSelection[];
+  /** Explicit mapping policy; omitted when `selections` is supplied. */
+  readonly alignment?: "one-to-one";
+  readonly selections?: readonly SpineTreeScopeSelection[];
   readonly maxCasRetries?: number;
 }
 
@@ -72,15 +78,14 @@ export async function commitSpineTreeScopes(input: SpineTreeScopeCommitInput): P
   // Retain one immutable receipt throughout asynchronous CAS retries.
   const fixed = structuredClone(receipt);
   validateReceipt(fixed);
-  // Object key order is not part of the committed receipt's identity.
-  const serialized = JSON.stringify(fixed, (_key, value) => value !== null && typeof value === "object" && !Array.isArray(value)
-    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value);
-  const fingerprint = createHash("sha256").update(serialized).digest("hex");
   const key = JSON.stringify([fixed.sessionId, fixed.record.commit_id.thread]);
   for (let attempt = 0; ; attempt += 1) {
     const head = await store.head();
     const snapshot = await store.readSnapshot(head);
     const prior = snapshot.scopeImports?.[key];
+    // Alignment fingerprints only the canonical receipt and policy. Generated
+    // ProjectBranch UUIDs are persisted output, not replay input.
+    const fingerprint = fingerprintReceipt(fixed);
     if (prior !== undefined) {
       if (prior.commitId === fixed.record.commit_id.value && prior.epoch === fixed.record.epoch) {
         if (prior.fingerprint !== fingerprint) throw new SpineTreeScopeError("conflicting-replay", "Commit replay differs from the imported receipt or selection");
@@ -91,15 +96,18 @@ export async function commitSpineTreeScopes(input: SpineTreeScopeCommitInput): P
         record.post_boundary.ordinal < prior.postBoundary || record.previous_commit_id?.value !== prior.commitId
       ))) throw new SpineTreeScopeError("stale-commit", "Cannot import an older or divergent canonical commit");
     }
+    const selections: readonly SpineTreeAlignedSelection[] = fixed.selections === undefined
+      ? deriveAlignedSelections(snapshot, fixed)
+      : fixed.selections;
     const draft = structuredClone(snapshot);
-    const selections = mapScopes(draft, fixed);
+    const mapped = mapScopes(draft, { ...fixed, selections } as MappingReceipt);
     const next: SpineTreeSnapshot = { ...draft, scopeImports: { ...draft.scopeImports, [key]: {
       epoch: fixed.record.epoch, postBoundary: fixed.record.post_boundary.ordinal,
-      commitId: fixed.record.commit_id.value, fingerprint, selections,
+      commitId: fixed.record.commit_id.value, fingerprint, selections: mapped,
     } } };
     try {
       const committed = await store.commitSnapshot(head, next, "spinetree: import committed scopes");
-      return { schema: "spinetree.scopes.result/v1", head: committed.head, replayed: false, selections };
+      return { schema: "spinetree.scopes.result/v1", head: committed.head, replayed: false, selections: mapped };
     } catch (error) {
       if (!(error instanceof SpineTreeChangeError) || error.code !== "stale-head" || attempt + 1 >= maxCasRetries) throw error;
     }
@@ -107,6 +115,7 @@ export async function commitSpineTreeScopes(input: SpineTreeScopeCommitInput): P
 }
 
 type Receipt = Omit<SpineTreeScopeCommitInput, "store" | "maxCasRetries">;
+type MappingReceipt = Omit<Receipt, "selections"> & { selections: readonly SpineTreeAlignedSelection[] };
 
 function validateReceipt(input: Receipt): void {
   const { record, projection } = input;
@@ -118,9 +127,83 @@ function validateReceipt(input: Receipt): void {
     projection.last_boundary !== record.post_boundary.ordinal) {
     throw new SpineTreeScopeError("invalid-commit", "Expected a matching committed sampling record and projection");
   }
+  if (input.alignment !== undefined && input.alignment !== "one-to-one") {
+    throw new SpineTreeScopeError("invalid-selection", "Unknown Scope alignment policy");
+  }
+  if (input.selections === undefined && input.alignment !== "one-to-one") {
+    throw new SpineTreeScopeError("invalid-selection", "Provide explicit selections or one-to-one alignment");
+  }
 }
 
-function mapScopes(snapshot: SpineTreeSnapshot, input: Receipt): SpineTreeScopeMapping[] {
+function fingerprintReceipt(input: Receipt): string {
+  const identity = input.alignment === "one-to-one" ? { ...input, selections: undefined } : input;
+  const serialized = JSON.stringify(identity, (_key, value) => value !== null && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value);
+  return createHash("sha256").update(serialized).digest("hex");
+}
+
+function deriveAlignedSelections(snapshot: SpineTreeSnapshot, input: Receipt): SpineTreeAlignedSelection[] {
+  const { agentId, sessionId, record, projection } = input;
+  const thread = record.commit_id.thread;
+  const agent = snapshot.registry?.[agentId];
+  if (agent === undefined || agent.sessionId !== sessionId || agent.status === "ended") {
+    throw new SpineTreeScopeError("unknown-agent", "Scope import requires an active registered Agent for this Pi session");
+  }
+  const nodes = new Map(projection.nodes.map(node => [JSON.stringify(node.id), node]));
+  const branches = snapshot.branches as Record<string, SpineTreeBranch>;
+  const ordered = projection.nodes.filter(node => node.kind === "Task").sort((left, right) => {
+    const depth = (node: NodeSnapshot) => {
+      let value = 0;
+      let current = node;
+      const seen = new Set<string>();
+      while (current.parent !== null) {
+        const key = JSON.stringify(current.parent);
+        if (seen.has(key)) break;
+        seen.add(key);
+        const parent = nodes.get(key);
+        if (parent === undefined) break;
+        value += 1;
+        current = parent;
+      }
+      return value;
+    };
+    return depth(left) - depth(right) || JSON.stringify(left.id).localeCompare(JSON.stringify(right.id));
+  });
+  const branchByNode = new Map<string, string>();
+  const assigned = new Set<string>();
+  const selections: SpineTreeAlignedSelection[] = [];
+  for (const node of ordered) {
+    const nodeKey = JSON.stringify(node.id);
+    const mapped = Object.values(branches).find(branch => matchesScope(branch.scopeBinding, sessionId, thread, record.epoch, node.id));
+    if (mapped !== undefined) {
+      branchByNode.set(nodeKey, mapped.id);
+      assigned.add(mapped.id);
+      selections.push({ nodeId: [...node.id], branch: mapped.id });
+      continue;
+    }
+    const parent = node.parent === null ? undefined : nodes.get(JSON.stringify(node.parent));
+    const parentBranch = parent?.kind === "Task" ? branchByNode.get(JSON.stringify(parent.id)) : undefined;
+    const projectParent = parentBranch ?? agent.branch;
+    const home = branches[projectParent];
+    if (home === undefined) throw new SpineTreeScopeError("unknown-branch", `Unknown ProjectBranch ${projectParent}`);
+    const homeBinding = home.scopeBinding;
+    const canReuseHome = parentBranch === undefined && !assigned.has(home.id) && home.status !== "archived" &&
+      (homeBinding === undefined || (home.status === "capped" &&
+        (homeBinding.sessionId !== sessionId || homeBinding.thread !== thread || homeBinding.epoch !== record.epoch)));
+    if (canReuseHome) {
+      branchByNode.set(nodeKey, home.id);
+      assigned.add(home.id);
+      selections.push({ nodeId: [...node.id], branch: home.id });
+    } else if (parent?.kind === "Task") {
+      selections.push({ nodeId: [...node.id], parentNodeId: [...parent.id] });
+    } else {
+      selections.push({ nodeId: [...node.id], parent: projectParent });
+    }
+  }
+  return selections;
+}
+
+function mapScopes(snapshot: SpineTreeSnapshot, input: MappingReceipt): SpineTreeScopeMapping[] {
   const { agentId, sessionId, record, projection } = input;
   const thread = record.commit_id.thread;
   const agent = snapshot.registry?.[agentId];
@@ -132,24 +215,30 @@ function mapScopes(snapshot: SpineTreeSnapshot, input: Receipt): SpineTreeScopeM
   const seen = new Set<string>();
   const selectedBranches = new Set<string>();
   const selections: SpineTreeScopeMapping[] = [];
+  const branchByNode = new Map<string, string>();
   for (const selection of input.selections) {
     const nodeKey = JSON.stringify(selection.nodeId);
     const node = nodes.get(nodeKey);
-    if (seen.has(nodeKey) || node?.kind !== "Task" || (selection.branch === undefined) === (selection.parent === undefined)) {
+    const parentNodeId = "parentNodeId" in selection ? selection.parentNodeId : undefined;
+    const branchSelection = "branch" in selection ? selection.branch : undefined;
+    const parentSelection = "parent" in selection ? selection.parent : undefined;
+    const hasBranch = branchSelection !== undefined;
+    const hasParent = parentSelection !== undefined || parentNodeId !== undefined;
+    if (seen.has(nodeKey) || node?.kind !== "Task" || hasBranch === hasParent) {
       throw new SpineTreeScopeError("invalid-selection", "Select each Task scope once, with either a parent or an existing branch");
     }
     seen.add(nodeKey);
     const mapped = Object.values(branches).find(branch => matchesScope(branch.scopeBinding, sessionId, thread, record.epoch, node.id));
     let branch: SpineTreeBranch;
     if (mapped !== undefined) {
-      if (mapped.status === "archived" || (selection.branch !== undefined && selection.branch !== mapped.id) ||
-        (selection.parent !== undefined && selection.parent !== mapped.parent) || mapped.scopeBinding?.agentId !== agentId) {
+      if (mapped.status === "archived" || (branchSelection !== undefined && branchSelection !== mapped.id) ||
+        (parentSelection !== undefined && parentSelection !== mapped.parent) || mapped.scopeBinding?.agentId !== agentId) {
         throw new SpineTreeScopeError("binding-conflict", "Scope mapping is archived or belongs to a different ProjectBranch or Agent");
       }
       branch = mapped;
-    } else if (selection.branch !== undefined) {
-      const existing = branches[selection.branch];
-      if (existing === undefined) throw new SpineTreeScopeError("unknown-branch", `Unknown ProjectBranch ${selection.branch}`);
+    } else if (branchSelection !== undefined) {
+      const existing = branches[branchSelection];
+      if (existing === undefined) throw new SpineTreeScopeError("unknown-branch", `Unknown ProjectBranch ${branchSelection}`);
       if (existing.status === "archived" || (existing.status === "live" && existing.scopeBinding !== undefined)) {
         throw new SpineTreeScopeError("binding-conflict", "Cannot replace a live mapping or bind an archived branch");
       }
@@ -159,8 +248,10 @@ function mapScopes(snapshot: SpineTreeSnapshot, input: Receipt): SpineTreeScopeM
       }
       branch = existing;
     } else {
-      const parent = branches[selection.parent!];
-      if (parent === undefined) throw new SpineTreeScopeError("unknown-branch", `Unknown parent ${selection.parent}`);
+      const parentId = parentSelection ?? (parentNodeId === undefined ? undefined : branchByNode.get(JSON.stringify(parentNodeId)));
+      if (parentId === undefined) throw new SpineTreeScopeError("invalid-selection", "A canonical parent scope must be mapped before its child");
+      const parent = branches[parentId];
+      if (parent === undefined) throw new SpineTreeScopeError("unknown-branch", `Unknown parent ${parentId}`);
       if (parent.status === "archived") throw new SpineTreeScopeError("invalid-selection", "Cannot create under an archived branch");
       branch = {
         id: randomUUID(), parent: parent.id, goal: node.summary ?? "", constraints: [], skills: [], tools: [],
@@ -172,6 +263,7 @@ function mapScopes(snapshot: SpineTreeSnapshot, input: Receipt): SpineTreeScopeM
     const scopeBinding: SpineTreeScopeBinding = { agentId, sessionId, thread, epoch: record.epoch, nodeId: [...node.id] };
     const sameMapping = matchesScope(branch.scopeBinding, sessionId, thread, record.epoch, node.id);
     branches[branch.id] = sameMapping ? branch : { ...branch, scopeBinding, status: "live" };
+    branchByNode.set(nodeKey, branch.id);
     selections.push({ nodeId: [...node.id], branch: branch.id });
   }
   for (const branch of Object.values(branches)) {
@@ -192,7 +284,7 @@ function matchesScope(bound: SpineTreeScopeBinding | undefined, sessionId: strin
     JSON.stringify(bound.nodeId) === JSON.stringify(nodeId);
 }
 
-function importNode(branch: SpineTreeBranch, node: NodeSnapshot, input: Receipt): SpineTreeBranch {
+function importNode(branch: SpineTreeBranch, node: NodeSnapshot, input: MappingReceipt): SpineTreeBranch {
   if (node.status === "Live" || node.status === "Opened") return branch;
   if (node.memory === null) throw new SpineTreeScopeError("unsupported-scope", "Terminal scope has no canonical memory");
   const source: SpineTreeScopeMemorySource = {

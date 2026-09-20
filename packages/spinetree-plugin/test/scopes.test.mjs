@@ -120,6 +120,37 @@ test("receipt replay is write-free after reload; changed selections and stale re
   assert.equal(store.head(), head);
 });
 
+test("one-to-one alignment reuses generated UUIDs and resolves nested parents in one batch", async t => {
+  const commit = await canonical(t);
+  const store = new MemorySpineTreeStore(initial());
+  const opened = await commit({ type: "open", summary: "parent" });
+  const parent = opened.projection.nodes.find(node => node.kind === "Task");
+  assert.ok(parent);
+  const child = {
+    ...parent, id: [...parent.id, 1], parent: [...parent.id], children: [], summary: "child",
+  };
+  const aligned = {
+    ...opened,
+    alignment: "one-to-one",
+    projection: {
+      ...opened.projection,
+      cursor: child.id,
+      nodes: [...opened.projection.nodes, child],
+    },
+  };
+  const first = await commitSpineTreeScopes({ store, ...aligned });
+  assert.equal(first.selections.length, 2);
+  const parentBranch = first.selections.find(selection => JSON.stringify(selection.nodeId) === JSON.stringify(parent.id)).branch;
+  const childBranch = first.selections.find(selection => JSON.stringify(selection.nodeId) === JSON.stringify(child.id)).branch;
+  assert.equal(parentBranch, "root");
+  assert.equal(snapshot(store).branches[childBranch].parent, parentBranch);
+  const head = store.head();
+  const replayed = await commitSpineTreeScopes({ store, ...aligned });
+  assert.equal(replayed.replayed, true);
+  assert.equal(replayed.head, head);
+  assert.deepEqual(replayed.selections, first.selections);
+});
+
 test("archived mappings cannot be reselected on a later canonical commit", async t => {
   const commit = await canonical(t);
   const store = new MemorySpineTreeStore(initial());
