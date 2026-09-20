@@ -31,7 +31,7 @@ The five input contracts are:
 | `spinetree_read` | `branch` | — |
 | `spinetree_change` | `expectedHead`, non-empty `changes` | — |
 | `spinetree_send` | `to`, `message` | `from`, `requestId` |
-| `spinetree_observe` | `receiptId`, `agentId` | — |
+| `spinetree_observe` | `receiptId`, `agentId` | `leaseId` (required while leased) |
 | `spinetree_rejuvenate` | `parent`, `branch` | `request` |
 
 Strings must be non-empty. `change` items are `update` with `branch` and
@@ -43,6 +43,55 @@ receipt ownership. Host does not add a schema validation layer to `executeTool`.
 
 Without the required explicit adapters, a tool retains its input schema but its
 description states that it returns `contract-only`. No implicit state is created.
+
+## Queued messaging and observation
+
+`spinetree_send` v2 only validates Agent addresses and enqueues. A fresh result is
+`{ schema: "spinetree.send.result/v2", status: "queued", receipt, to, sessionId }`.
+It never calls the session adapter or waits for the recipient. Reusing `requestId`
+with the same message returns its current receipt; `status` equals `receipt.status`
+(including leased or observed). A conflicting message under that key fails.
+Memory adapters retain state only in process; Git adapters persist it before return.
+
+Applications must call `dispatchSpineTreeMailbox({ registry, mailbox, sessions,
+limit })` outside the sending tool stack. Each pass selects a bounded batch once;
+messages enqueued during a prompt, including replies, wait for another pass.
+The caller owns scheduling, fairness, timeouts and Pi connections/leases. There is
+no automatic worker. The Pi adapter still awaits actual prompt completion.
+
+Dispatcher prompt text is JSON with this exact envelope:
+
+```json
+{"schema":"spinetree.message/v1","receiptId":"mail-1","leaseId":"lease-1","to":"agent-b","from":"agent-a","message":"Please review the result"}
+```
+
+`from` is null when omitted. The message string is preserved. This envelope is
+application text within Pi's existing prompt API, not a new Pi wire protocol.
+The recipient uses `spinetree_observe({ receiptId, agentId: to, leaseId })` during
+its prompt, then may enqueue a reply to `from` with `spinetree_send`. Observing
+confirms receipt, not successful task completion or exactly-once business effects.
+Agent checks establish routing consistency; they are not authentication.
+
+State transitions are `queued -> leased -> delivered -> observed`, or
+`leased -> observed` when the recipient confirms before its prompt completes.
+Leased observation requires its current token. Delivered/observed allow omitted
+tokens for existing callers and legacy receipts, but any supplied token must match.
+Queued and failed cannot be observed. Delivered/observed retain the completing
+leaseId as delivery identity, with leaseUntil cleared; it is no longer an active
+lease. Same-token late success/rejection/error returns observed without a write.
+A superseded token cannot observe or overwrite a newer delivery's state.
+
+Without observation, accepted prompt completion marks delivered; rejected or
+transient failures requeue; explicitly permanent errors mark failed. Busy targets
+therefore leave the same receipt available for a later pass. Long prompts exceeding
+the lease interval and lost acknowledgements can cause duplicate prompts: delivery
+remains at least once. requestId deduplicates local enqueue, not remote execution.
+Storage acknowledgement failures propagate and do not masquerade as transport errors.
+
+Migration from send v1: schedule explicit dispatch, decode envelope text rather
+than assuming plain message text, and pass its leaseId for in-prompt observation.
+Custom mailbox implementations must implement these observation and late-completion
+rules too; the built-in Memory/Git adapters share the transition functions.
 
 ## Explicit canonical Scope mapping
 

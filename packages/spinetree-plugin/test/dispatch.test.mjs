@@ -5,9 +5,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SpinePluginHost } from "@spinejit/spine-host";
 import {
-  createSpineTreePlugin,
   dispatchSpineTreeMailbox,
   GitSpineTreeAgentRegistry,
   GitSpineTreeMailbox,
@@ -136,12 +134,12 @@ test("dispatch attempts a bounded selection once and leaves new messages for the
   const calls = [];
   const sessions = { async request(request) {
     calls.push(request);
-    if (request.text === "reject") {
+    if (JSON.parse(request.text).message === "reject") {
       mailbox.enqueue(input("added during dispatch"));
       return { accepted: false };
     }
-    if (request.text === "transient") throw new Error("disconnected");
-    if (request.text === "permanent") throw Object.assign(new Error("invalid target"), { permanent: true });
+    if (JSON.parse(request.text).message === "transient") throw new Error("disconnected");
+    if (JSON.parse(request.text).message === "permanent") throw Object.assign(new Error("invalid target"), { permanent: true });
     return { accepted: true };
   } };
   const first = await dispatchSpineTreeMailbox({ registry: agents, mailbox, sessions, limit: 3 });
@@ -158,8 +156,8 @@ test("dispatch attempts a bounded selection once and leaves new messages for the
     "delivered", "delivered", "delivered", "failed", "failed", "delivered", "delivered",
   ]);
   assert.equal(second.receipts[0].attempt, 2);
-  assert.deepEqual(calls[0], { targetSessionId: "session", operation: "prompt", text: "reject", requestId: "mail-1" });
-  assert.equal(calls.some(request => ["unknown", "ended"].includes(request.text)), false);
+  assert.deepEqual(calls[0], { targetSessionId: "session", operation: "prompt", text: JSON.stringify({ schema: "spinetree.message/v1", receiptId: "mail-1", leaseId: "lease-1", to: "agent", from: null, message: "reject" }), requestId: "mail-1" });
+  assert.equal(calls.some(request => ["unknown", "ended"].includes(JSON.parse(request.text).message)), false);
   assert.deepEqual(await mailbox.pending(100), []);
 });
 
@@ -186,7 +184,7 @@ test("a fresh process dispatches persisted queued and abandoned leased receipts 
     env: { ...process.env, SPINE_ROOT: root }, encoding: "utf8",
   }));
   assert.deepEqual(output.result.receipts.map(receipt => [receipt.status, receipt.attempt]), [["delivered", 1], ["delivered", 2]]);
-  assert.deepEqual(output.calls.map(request => [request.text, request.requestId]), [["queued", "mail-1"], ["abandoned", "mail-2"]]);
+  assert.deepEqual(output.calls.map(request => [JSON.parse(request.text).message, request.requestId]), [["queued", "mail-1"], ["abandoned", "mail-2"]]);
   const reloaded = new GitSpineTreeMailbox(root);
   assert.deepEqual(await reloaded.pending(10), []);
   assert.equal((await reloaded.enqueue({ ...input("queued"), requestId: "caller-1" })).status, "delivered");
@@ -213,28 +211,17 @@ test("dispatch propagates infrastructure errors and leaves acquired leases recov
   }
 });
 
-for (const operation of ["send", "dispatch"]) {
-  test(`${operation} propagates acknowledgement storage failure without requeuing accepted delivery`, async t => {
-    const mailbox = new MemorySpineTreeMailbox();
-    const agents = registry();
-    const failure = new Error("ack write failed");
-    t.mock.method(mailbox, "delivered", () => { throw failure; });
-    t.mock.method(mailbox, "release", () => { assert.fail("ack failure is not a transport rejection"); });
-    const sessions = { async request() { return { accepted: true }; } };
-    if (operation === "dispatch") {
-      mailbox.enqueue(input("one"));
-      await assert.rejects(dispatchSpineTreeMailbox({ registry: agents, mailbox, sessions }), error => error === failure);
-    } else {
-      const host = new SpinePluginHost({ sessions });
-      t.after(() => host.dispose());
-      host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0", owns: ["spine.canonical"] }, activate() {} });
-      host.register(createSpineTreePlugin({ registry: agents, mailbox }));
-      await host.activateAll();
-      await assert.rejects(host.executeTool("spinetree_send", { to: "agent", message: "one" }), error => error === failure);
-    }
-    assert.equal(mailbox.receipt("mail-1").status, "leased");
-  });
-}
+test("dispatch propagates acknowledgement storage failure without requeuing accepted delivery", async t => {
+  const mailbox = new MemorySpineTreeMailbox();
+  const failure = new Error("ack write failed");
+  t.mock.method(mailbox, "delivered", () => { throw failure; });
+  t.mock.method(mailbox, "release", () => { assert.fail("ack failure is not a transport rejection"); });
+  mailbox.enqueue(input("one"));
+  await assert.rejects(dispatchSpineTreeMailbox({ registry: registry(), mailbox,
+    sessions: { async request() { return { accepted: true }; } },
+  }), error => error === failure);
+  assert.equal(mailbox.receipt("mail-1").status, "leased");
+});
 
 test("a late transport completion cannot overwrite a newer lease's delivered receipt", async t => {
   let now = 1_000;

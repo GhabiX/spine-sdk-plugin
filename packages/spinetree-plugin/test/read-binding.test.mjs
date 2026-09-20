@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SpinePluginHost } from "@spinejit/spine-host";
 import {
-  createSpineTreePlugin, GitSpineTreeStore, GitSpineTreeAgentRegistry,
+  dispatchSpineTreeMailbox, createSpineTreePlugin, GitSpineTreeStore, GitSpineTreeAgentRegistry,
   GitSpineTreeMailbox, MemorySpineTreeStore,
 } from "../dist/index.js";
 
@@ -30,9 +30,9 @@ test("persisted lifecycle binding is discoverable and routes read -> send -> obs
   await registry.register(binding);
   const reloaded = new GitSpineTreeStore(root);
   const calls = [];
-  const host = await hostFor({
-    store: reloaded, registry: new GitSpineTreeAgentRegistry(reloaded), mailbox: new GitSpineTreeMailbox(reloaded),
-  }, { async request(request) { calls.push(request); return { accepted: true }; } });
+  const mailbox = new GitSpineTreeMailbox(reloaded);
+  const sessions = { async request(request) { calls.push(request); return { accepted: true }; } };
+  const host = await hostFor({ store: reloaded, registry: new GitSpineTreeAgentRegistry(reloaded), mailbox }, sessions);
   const head = reloaded.head();
   const read = await host.executeTool("spinetree_read", { branch: "root" });
   assert.equal(read.schema, "spinetree.read.result/v2");
@@ -42,8 +42,12 @@ test("persisted lifecycle binding is discoverable and routes read -> send -> obs
   assert.equal(reloaded.head(), head);
   assert.deepEqual(reloaded.readSnapshot(head).agents, {});
   const sent = await host.executeTool("spinetree_send", { to: read.binding.agentId, message: "hello" });
-  assert.deepEqual(calls, [{ targetSessionId: read.binding.sessionId, operation: "prompt", text: "hello", requestId: sent.receipt.id }]);
-  assert.equal(sent.receipt.status, "delivered");
+  assert.equal(sent.receipt.status, "queued");
+  assert.deepEqual(calls, []);
+  await dispatchSpineTreeMailbox({ registry, mailbox, sessions });
+  assert.equal(calls[0].targetSessionId, read.binding.sessionId);
+  assert.equal(JSON.parse(calls[0].text).message, "hello");
+  assert.equal(JSON.parse(calls[0].text).receiptId, sent.receipt.id);
   const observed = await host.executeTool("spinetree_observe", { receiptId: sent.receipt.id, agentId: read.binding.agentId });
   assert.equal(observed.receipt.status, "observed");
   await registry.transition(binding.agentId, "paused");

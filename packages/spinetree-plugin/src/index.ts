@@ -8,7 +8,7 @@ export * from "./scopes.js";
 
 export const SPINETREE_READ_RESULT_SCHEMA = "spinetree.read.result/v2" as const;
 export const SPINETREE_CHANGE_RESULT_SCHEMA = "spinetree.change.result/v1" as const;
-export const SPINETREE_SEND_RESULT_SCHEMA = "spinetree.send.result/v1" as const;
+export const SPINETREE_SEND_RESULT_SCHEMA = "spinetree.send.result/v2" as const;
 export const SPINETREE_OBSERVE_RESULT_SCHEMA = "spinetree.observe.result/v1" as const;
 
 export interface SpineTreeBranch {
@@ -274,7 +274,7 @@ export interface SpineTreeMailbox {
   delivered(receiptId: string, leaseId: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
   release(receiptId: string, leaseId: string, error: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
   fail(receiptId: string, leaseId: string, error: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
-  observed(receiptId: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
+  observed(receiptId: string, leaseId?: string): SpineTreeReceipt | Promise<SpineTreeReceipt>;
 }
 
 export interface SpineTreeMailboxReader {
@@ -284,6 +284,18 @@ export interface SpineTreeMailboxReader {
 export interface SpineTreeDispatchMailbox extends SpineTreeMailbox {
   /** Read-only selection of due queued receipts and expired leases, in enqueue order. */
   pending(limit: number): readonly SpineTreeReceipt[] | Promise<readonly SpineTreeReceipt[]>;
+}
+
+export const SPINETREE_MESSAGE_SCHEMA = "spinetree.message/v1" as const;
+
+/** Recipient-visible prompt payload; leaseId identifies this delivery attempt. */
+export interface SpineTreeMessage {
+  readonly schema: typeof SPINETREE_MESSAGE_SCHEMA;
+  readonly receiptId: string;
+  readonly leaseId: string;
+  readonly to: string;
+  readonly from: string | null;
+  readonly message: string;
 }
 
 export interface SpineTreeDispatchResult {
@@ -354,50 +366,28 @@ export class MemorySpineTreeMailbox implements SpineTreeDispatchMailbox {
   }
 
   delivered(receiptId: string, leaseId: string): SpineTreeReceipt {
-    const receipt = this.#requireLease(receiptId, leaseId);
-    const next = { ...receipt, status: "delivered" as const, leaseId: null, leaseUntil: null, nextAttemptAt: null };
-    this.#receipts.set(receiptId, next);
-    return clone(next);
+    return this.#leaseMutation(receiptId, leaseId, "delivered", null);
   }
 
   release(receiptId: string, leaseId: string, error: string): SpineTreeReceipt {
-    this.#requireLease(receiptId, leaseId);
-    const receipt = this.receipt(receiptId);
-    const next = {
-      ...receipt,
-      status: "queued" as const,
-      leaseId: null,
-      leaseUntil: null,
-      nextAttemptAt: Date.now(),
-      lastError: error,
-    };
-    this.#receipts.set(receiptId, next);
-    return clone(next);
+    return this.#leaseMutation(receiptId, leaseId, "queued", error);
   }
 
   fail(receiptId: string, leaseId: string, error: string): SpineTreeReceipt {
-    this.#requireLease(receiptId, leaseId);
-    const receipt = this.receipt(receiptId);
-    const next = {
-      ...receipt,
-      status: "failed" as const,
-      leaseId: null,
-      leaseUntil: null,
-      nextAttemptAt: null,
-      lastError: error,
-    };
-    this.#receipts.set(receiptId, next);
+    return this.#leaseMutation(receiptId, leaseId, "failed", error);
+  }
+
+  #leaseMutation(receiptId: string, leaseId: string, status: "queued" | "delivered" | "failed", error: string | null): SpineTreeReceipt {
+    const receipt = this.#receipt(receiptId);
+    const next = completeDelivery(receipt, leaseId, status, error);
+    if (next !== receipt) this.#receipts.set(receiptId, next);
     return clone(next);
   }
 
-  observed(receiptId: string): SpineTreeReceipt {
+  observed(receiptId: string, leaseId?: string): SpineTreeReceipt {
     const receipt = this.#receipt(receiptId);
-    if (receipt.status === "observed") return clone(receipt);
-    if (receipt.status !== "delivered") {
-      throw new SpineTreeMailboxError("invalid-state", `Receipt ${receiptId} cannot be observed from ${receipt.status}`);
-    }
-    const next = { ...receipt, status: "observed" as const };
-    this.#receipts.set(receiptId, next);
+    const next = observeReceipt(receipt, leaseId);
+    if (next !== receipt) this.#receipts.set(receiptId, next);
     return clone(next);
   }
 
@@ -413,14 +403,6 @@ export class MemorySpineTreeMailbox implements SpineTreeDispatchMailbox {
 
   pending(limit: number): readonly SpineTreeReceipt[] {
     return pendingReceipts(this.#receipts.values(), limit, Date.now());
-  }
-
-  #requireLease(receiptId: string, leaseId: string): SpineTreeReceipt {
-    const receipt = this.#receipt(receiptId);
-    if (receipt.status !== "leased" || receipt.leaseId !== leaseId) {
-      throw new SpineTreeMailboxError("lease-conflict", `Lease ${leaseId} does not own receipt ${receiptId}`);
-    }
-    return receipt;
   }
 }
 
@@ -510,7 +492,7 @@ export class GitSpineTreeMailbox implements SpineTreeDispatchMailbox {
     return this.#leaseMutation(receiptId, leaseId, "failed", error, "spinetree: mailbox fail");
   }
 
-  async observed(receiptId: string): Promise<SpineTreeReceipt> {
+  async observed(receiptId: string, leaseId?: string): Promise<SpineTreeReceipt> {
     return mutateSnapshotWithRetry(
       this.store,
       this.#maxCasRetries,
@@ -518,11 +500,8 @@ export class GitSpineTreeMailbox implements SpineTreeDispatchMailbox {
       snapshot => {
         const state = mailboxState(snapshot.mailbox);
         const receipt = receiptFromState(state, receiptId);
-        if (receipt.status === "observed") return { snapshot, value: receipt };
-        if (receipt.status !== "delivered") {
-          throw new SpineTreeMailboxError("invalid-state", `Receipt ${receiptId} cannot be observed from ${receipt.status}`);
-        }
-        const next = { ...receipt, status: "observed" as const };
+        const next = observeReceipt(receipt, leaseId);
+        if (next === receipt) return { snapshot, value: receipt };
         state.receipts[receiptId] = next;
         return { snapshot: { ...snapshot, mailbox: state }, value: clone(next) };
       },
@@ -557,15 +536,8 @@ export class GitSpineTreeMailbox implements SpineTreeDispatchMailbox {
       snapshot => {
         const state = mailboxState(snapshot.mailbox);
         const receipt = receiptFromState(state, receiptId);
-        requireLease(receipt, receiptId, leaseId);
-        const next: SpineTreeReceipt = {
-          ...receipt,
-          status,
-          leaseId: null,
-          leaseUntil: null,
-          nextAttemptAt: status === "queued" ? Date.now() : null,
-          lastError: error,
-        };
+        const next = completeDelivery(receipt, leaseId, status, error);
+        if (next === receipt) return { snapshot, value: receipt };
         state.receipts[receiptId] = next;
         return { snapshot: { ...snapshot, mailbox: state }, value: clone(next) };
       },
@@ -836,7 +808,7 @@ export interface SpineTreeSendInput {
 export interface SpineTreeSendResult {
   readonly schema: typeof SPINETREE_SEND_RESULT_SCHEMA;
   readonly receipt: SpineTreeReceipt;
-  readonly status: "delivered" | "queued" | "failed";
+  readonly status: SpineTreeReceipt["status"];
   readonly to: string;
   readonly sessionId: string;
 }
@@ -844,6 +816,7 @@ export interface SpineTreeSendResult {
 export interface SpineTreeObserveInput {
   readonly receiptId: string;
   readonly agentId: string;
+  readonly leaseId?: string;
 }
 
 export interface SpineTreeObserveResult {
@@ -880,7 +853,7 @@ export class SpineTreeSendError extends Error {
 }
 
 export class SpineTreeObserveError extends Error {
-  readonly code: "invalid-input" | "unknown-agent" | "agent-ended" | "unknown-receipt" | "not-recipient" | "invalid-state" | "mailbox-error";
+  readonly code: "invalid-input" | "unknown-agent" | "agent-ended" | "unknown-receipt" | "not-recipient" | "invalid-state" | "lease-conflict" | "mailbox-error";
 
   constructor(code: SpineTreeObserveError["code"], message: string) {
     super(message);
@@ -981,7 +954,7 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
             : operation === "change" && changeStore !== undefined
               ? changeTool(changeStore)
             : operation === "send" && sendReady
-              ? sendTool(options.registry!, options.mailbox!, context)
+              ? sendTool(options.registry!, options.mailbox!)
             : operation === "observe" && observeReady
               ? observeTool(options.registry!, options.mailbox!, options.mailbox!)
             : operation === "rejuvenate" && rejuvenateReady
@@ -1000,7 +973,6 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
 function sendTool(
   registry: SpineTreeAgentRegistry,
   mailbox: SpineTreeMailbox,
-  context: SpinePluginContext,
 ): PluginTool {
   return {
     ...toolContracts.send,
@@ -1018,19 +990,13 @@ function sendTool(
         if (source === undefined) throw new SpineTreeSendError("unknown-recipient", `Unknown Agent ${parsed.from}`);
         if (source.status === "ended") throw new SpineTreeSendError("recipient-ended", `Agent ${parsed.from} has ended`);
       }
-      let receipt: SpineTreeReceipt;
       try {
-        receipt = await mailbox.enqueue({
+        const receipt = await mailbox.enqueue({
           to: parsed.to,
           from: parsed.from ?? null,
           message: parsed.message,
           ...(parsed.requestId === undefined ? {} : { requestId: parsed.requestId }),
         });
-        if (receipt.status === "delivered" || receipt.status === "observed" || receipt.status === "failed") {
-          return sendResult(receipt, target.sessionId);
-        }
-        const leased = await mailbox.lease(receipt.id);
-        receipt = await deliverReceipt(mailbox, context.sessions, leased, target.sessionId);
         return sendResult(receipt, target.sessionId);
       } catch (error) {
         if (error instanceof SpineTreeSendError) throw error;
@@ -1054,7 +1020,14 @@ async function deliverReceipt(
     const response = await sessions.request({
       targetSessionId: sessionId,
       operation: "prompt",
-      text: leased.message,
+      text: JSON.stringify({
+        schema: SPINETREE_MESSAGE_SCHEMA,
+        receiptId: leased.id,
+        leaseId: leased.leaseId!,
+        to: leased.to,
+        from: leased.from,
+        message: leased.message,
+      } satisfies SpineTreeMessage),
       requestId: leased.id,
     });
     accepted = response.accepted;
@@ -1074,7 +1047,7 @@ function sendResult(receipt: SpineTreeReceipt, sessionId: string): SpineTreeSend
   return {
     schema: SPINETREE_SEND_RESULT_SCHEMA,
     receipt: clone(receipt),
-    status: receipt.status === "failed" ? "failed" : receipt.status === "delivered" || receipt.status === "observed" ? "delivered" : "queued",
+    status: receipt.status,
     to: receipt.to,
     sessionId,
   };
@@ -1109,7 +1082,7 @@ function observeTool(
         );
       }
       try {
-        const receipt = await mailbox.observed(parsed.receiptId);
+        const receipt = await mailbox.observed(parsed.receiptId, parsed.leaseId);
         return {
           schema: SPINETREE_OBSERVE_RESULT_SCHEMA,
           receipt: clone(receipt),
@@ -1127,11 +1100,14 @@ function parseObserveInput(input: unknown): SpineTreeObserveInput {
   if (input === null || typeof input !== "object") {
     throw new SpineTreeObserveError("invalid-input", "spinetree_observe requires an object input");
   }
-  const value = input as { receiptId?: unknown; agentId?: unknown };
+  const value = input as { receiptId?: unknown; agentId?: unknown; leaseId?: unknown };
   if (typeof value.receiptId !== "string" || value.receiptId.length === 0 || typeof value.agentId !== "string" || value.agentId.length === 0) {
     throw new SpineTreeObserveError("invalid-input", "spinetree_observe requires non-empty receiptId and agentId strings");
   }
-  return { receiptId: value.receiptId, agentId: value.agentId };
+  if (value.leaseId !== undefined && (typeof value.leaseId !== "string" || value.leaseId.length === 0)) {
+    throw new SpineTreeObserveError("invalid-input", "leaseId must be a non-empty string when supplied");
+  }
+  return { receiptId: value.receiptId, agentId: value.agentId, ...(value.leaseId === undefined ? {} : { leaseId: value.leaseId }) };
 }
 
 function observeMailboxError(error: unknown, receiptId: string): SpineTreeObserveError {
@@ -1139,8 +1115,8 @@ function observeMailboxError(error: unknown, receiptId: string): SpineTreeObserv
     if (error.code === "unknown-receipt") {
       return new SpineTreeObserveError("unknown-receipt", error.message);
     }
-    if (error.code === "invalid-state") {
-      return new SpineTreeObserveError("invalid-state", error.message);
+    if (error.code === "invalid-state" || error.code === "lease-conflict") {
+      return new SpineTreeObserveError(error.code, error.message);
     }
     return new SpineTreeObserveError("mailbox-error", error.message);
   }
@@ -1414,10 +1390,34 @@ function receiptFromState(state: MutableMailboxState, receiptId: string): SpineT
   return clone(receipt);
 }
 
-function requireLease(receipt: SpineTreeReceipt, receiptId: string, leaseId: string): void {
-  if (receipt.status !== "leased" || receipt.leaseId !== leaseId) {
-    throw new SpineTreeMailboxError("lease-conflict", `Lease ${leaseId} does not own receipt ${receiptId}`);
+// A receiver can acknowledge while prompt is still running. That terminal state
+// wins over completion/rejection, but only for the same delivery attempt.
+function completeDelivery(
+  receipt: SpineTreeReceipt,
+  leaseId: string,
+  status: "queued" | "delivered" | "failed",
+  error: string | null,
+): SpineTreeReceipt {
+  if ((receipt.status !== "leased" && receipt.status !== "observed") || receipt.leaseId !== leaseId) {
+    throw new SpineTreeMailboxError("lease-conflict", `Lease ${leaseId} does not own receipt ${receipt.id}`);
   }
+  if (receipt.status === "observed") return receipt;
+  return {
+    ...receipt, status, leaseId: status === "delivered" ? leaseId : null, leaseUntil: null,
+    nextAttemptAt: status === "queued" ? Date.now() : null, lastError: error,
+  };
+}
+
+function observeReceipt(receipt: SpineTreeReceipt, leaseId?: string): SpineTreeReceipt {
+  if (receipt.status !== "leased" && receipt.status !== "delivered" && receipt.status !== "observed") {
+    throw new SpineTreeMailboxError("invalid-state", `Receipt ${receipt.id} cannot be observed from ${receipt.status}`);
+  }
+  if ((receipt.status === "leased" && leaseId === undefined) ||
+      (leaseId !== undefined && receipt.leaseId !== leaseId)) {
+    throw new SpineTreeMailboxError("lease-conflict", `Lease ${leaseId} does not own receipt ${receipt.id}`);
+  }
+  if (receipt.status === "observed") return receipt;
+  return { ...receipt, status: "observed", leaseUntil: null, nextAttemptAt: null, lastError: null };
 }
 
 function isPending(receipt: SpineTreeReceipt, now: number): boolean {

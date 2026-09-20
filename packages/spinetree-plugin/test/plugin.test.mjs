@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   createSpineTreePlugin,
+  dispatchSpineTreeMailbox,
   MemorySpineTreeStore,
   SPINETREE_PLUGIN_MANIFEST,
   SPINETREE_CHANGE_RESULT_SCHEMA,
@@ -579,14 +580,8 @@ test("wires Git registry and mailbox persistence through the SpineTree send tool
   await registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "root", status: "running" });
 
   const requests = [];
-  const host = new SpinePluginHost({
-    sessions: {
-      async request(request) {
-        requests.push(request);
-        return { accepted: true };
-      },
-    },
-  });
+  const sessions = { async request(request) { requests.push(request); return { accepted: true }; } };
+  const host = new SpinePluginHost({ sessions });
   host.register(canonicalPlugin);
   host.register(createSpineTreePlugin({ store, registry, mailbox }));
   await host.activateAll();
@@ -594,13 +589,15 @@ test("wires Git registry and mailbox persistence through the SpineTree send tool
   const result = await host.executeTool("spinetree_send", {
     to: "agent-1", message: "persisted hello", requestId: "req-persisted",
   });
-  assert.equal(result.status, "delivered");
-  assert.deepEqual(requests, [{
-    targetSessionId: "session-1",
-    operation: "prompt",
-    text: "persisted hello",
-    requestId: "mail-1",
-  }]);
+  assert.equal(result.status, "queued");
+  assert.deepEqual(requests, []);
+  const { receipts: [delivered] } = await dispatchSpineTreeMailbox({ registry, mailbox, sessions });
+  assert.equal(delivered.status, "delivered");
+  assert.equal(requests[0].targetSessionId, "session-1");
+  assert.deepEqual(JSON.parse(requests[0].text), {
+    schema: "spinetree.message/v1", receiptId: "mail-1", leaseId: delivered.leaseId,
+    to: "agent-1", from: null, message: "persisted hello",
+  });
   await host.dispose();
 
   const reloadedRegistry = new GitSpineTreeAgentRegistry(new GitSpineTreeStore(root));
@@ -613,7 +610,7 @@ test("wires Git registry and mailbox persistence through the SpineTree send tool
     await reloadedMailbox.enqueue({
       to: "agent-1", from: null, message: "persisted hello", requestId: "req-persisted",
     }),
-    result.receipt,
+    delivered,
   );
 
   const observeHost = new SpinePluginHost();
@@ -629,7 +626,7 @@ test("wires Git registry and mailbox persistence through the SpineTree send tool
   });
   assert.deepEqual(observed, {
     schema: SPINETREE_OBSERVE_RESULT_SCHEMA,
-    receipt: { ...result.receipt, status: "observed" },
+    receipt: { ...delivered, status: "observed" },
     agentId: "agent-1",
     sessionId: "session-1",
   });
@@ -637,7 +634,7 @@ test("wires Git registry and mailbox persistence through the SpineTree send tool
   assert.equal((await new GitSpineTreeMailbox(new GitSpineTreeStore(root)).receipt("mail-1")).status, "observed");
 });
 
-test("observes only delivered receipts for their registered recipient and is idempotent", async () => {
+test("observes delivered receipts for their registered recipient and is idempotent", async () => {
   const registry = new MemoryAgentRegistry();
   registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "root", status: "running" });
   registry.register({ agentId: "agent-2", sessionId: "session-2", branch: "root", status: "paused" });
@@ -677,89 +674,34 @@ test("observes only delivered receipts for their registered recipient and is ide
   await host.dispose();
 });
 
-test("sends through a registered Agent session and preserves idempotent receipts", async () => {
+test("send only enqueues and returns exact idempotent receipt state", async t => {
   const registry = new MemoryAgentRegistry();
   registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "child", status: "running" });
   const mailbox = new MemorySpineTreeMailbox();
-  const requests = [];
-  const host = new SpinePluginHost({
-    sessions: {
-      async request(request) {
-        requests.push(request);
-        return { accepted: true, requestId: request.requestId };
-      },
-    },
-  });
+  const host = new SpinePluginHost({ sessions: { async request() { assert.fail("send cannot call transport"); } } });
+  t.after(() => host.dispose());
   host.register(canonicalPlugin);
   host.register(createSpineTreePlugin({ registry, mailbox }));
   await host.activateAll();
-
-  const result = await host.executeTool("spinetree_send", {
-    to: "agent-1",
-    from: undefined,
-    message: "hello",
-    requestId: "req-1",
-  });
+  const input = { to: "agent-1", message: "hello", requestId: "req-1" };
+  const result = await host.executeTool("spinetree_send", input);
+  assert.equal(result.schema, "spinetree.send.result/v2");
   assert.equal(result.schema, SPINETREE_SEND_RESULT_SCHEMA);
-  assert.equal(result.status, "delivered");
-  assert.equal(result.receipt.id, "mail-1");
-  assert.equal(result.receipt.attempt, 1);
-  assert.equal(result.receipt.status, "delivered");
-  assert.deepEqual(requests, [{
-    targetSessionId: "session-1",
-    operation: "prompt",
-    text: "hello",
-    requestId: "mail-1",
-  }]);
-
-  const repeated = await host.executeTool("spinetree_send", {
-    to: "agent-1", message: "hello", requestId: "req-1",
-  });
-  assert.equal(repeated.receipt.id, "mail-1");
-  assert.equal(requests.length, 1);
-  const observed = mailbox.observed("mail-1");
+  assert.equal(result.status, "queued");
+  assert.equal(result.receipt.attempt, 0);
+  assert.equal(result.receipt.leaseId, null);
+  assert.deepEqual(await host.executeTool("spinetree_send", input), result);
+  const leased = mailbox.lease(result.receipt.id);
+  assert.equal((await host.executeTool("spinetree_send", input)).status, "leased");
+  mailbox.observed(leased.id, leased.leaseId);
+  const observed = await host.executeTool("spinetree_send", input);
   assert.equal(observed.status, "observed");
-  assert.equal(mailbox.observed("mail-1").status, "observed");
-  assert.throws(
-    () => mailbox.enqueue({ to: "agent-1", from: null, message: "different", requestId: "req-1" }),
-    error => error.code === "invalid-state",
-  );
-  await host.dispose();
+  assert.equal(observed.receipt.id, result.receipt.id);
+  assert.equal(observed.receipt.attempt, 1);
+  await assert.rejects(host.executeTool("spinetree_send", { ...input, message: "changed" }), { code: "mailbox-error" });
 });
 
-test("requeues rejected or failed session delivery without losing the receipt", async () => {
-  const registry = new MemoryAgentRegistry();
-  registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "child", status: "running" });
-  const mailbox = new MemorySpineTreeMailbox();
-  let mode = "reject";
-  const host = new SpinePluginHost({
-    sessions: {
-      async request() {
-        if (mode === "reject") return { accepted: false };
-        throw new Error("temporary outage");
-      },
-    },
-  });
-  host.register(canonicalPlugin);
-  host.register(createSpineTreePlugin({ registry, mailbox }));
-  await host.activateAll();
-
-  const rejected = await host.executeTool("spinetree_send", { to: "agent-1", message: "one", requestId: "req-1" });
-  assert.equal(rejected.status, "queued");
-  assert.equal(rejected.receipt.status, "queued");
-  assert.equal(rejected.receipt.attempt, 1);
-  assert.equal(rejected.receipt.lastError, "session request was not accepted");
-
-  mode = "error";
-  const retried = await host.executeTool("spinetree_send", { to: "agent-1", message: "one", requestId: "req-1" });
-  assert.equal(retried.receipt.id, rejected.receipt.id);
-  assert.equal(retried.receipt.attempt, 2);
-  assert.equal(retried.receipt.status, "queued");
-  assert.equal(retried.receipt.lastError, "temporary outage");
-  await host.dispose();
-});
-
-test("send keeps a receipt leased until the Pi command resolves, then suppresses local redelivery", async (t) => {
+test("dispatch keeps the receipt leased until Pi command completion without blocking send", async t => {
   const registry = new MemoryAgentRegistry();
   registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "child", status: "running" });
   const mailbox = new MemorySpineTreeMailbox();
@@ -768,49 +710,42 @@ test("send keeps a receipt leased until the Pi command resolves, then suppresses
   const calls = [];
   const lease = {
     id: "session-1", active: true,
-    async prompt(...args) {
-      calls.push([this.id, args]);
-      started.resolve();
-      return completed.promise;
-    },
-    async steer() { assert.fail("send must use prompt"); },
-    async dispose() { assert.fail("lease belongs to the caller"); },
+    async prompt(...args) { calls.push(args); started.resolve(); return completed.promise; },
+    async steer() { assert.fail("dispatch must use prompt"); },
+    async dispose() { assert.fail("lease belongs to caller"); },
   };
-  const host = new SpinePluginHost({
-    sessions: createPiSessionAdapter(id => {
-      assert.equal(id, "session-1");
-      return lease;
-    }),
-  });
+  const sessions = createPiSessionAdapter(() => lease);
+  const host = new SpinePluginHost({ sessions });
   t.after(() => host.dispose());
   host.register(canonicalPlugin);
   host.register(createSpineTreePlugin({ registry, mailbox }));
   await host.activateAll();
-
   const input = { to: "agent-1", message: "hello", requestId: "caller-1" };
+  const queued = await host.executeTool("spinetree_send", input);
+  assert.equal(calls.length, 0);
   let settled = false;
-  const sending = host.executeTool("spinetree_send", input).then(result => {
-    settled = true;
-    return result;
-  });
+  const dispatching = dispatchSpineTreeMailbox({ registry, mailbox, sessions }).then(result => { settled = true; return result; });
   await started.promise;
   assert.equal(settled, false);
-  assert.equal(mailbox.receipt("mail-1").status, "leased");
-  assert.equal(mailbox.receipt("mail-1").attempt, 1);
-  assert.deepEqual(calls, [["session-1", ["hello"]]]);
-
-  completed.resolve({ id: "session-1" });
-  const result = await sending;
-  assert.equal(result.status, "delivered");
-  assert.equal(result.sessionId, "session-1");
-  assert.equal(result.receipt.status, "delivered");
-  assert.equal(result.receipt.leaseId, null);
-  assert.deepEqual(await host.executeTool("spinetree_send", input), result);
+  const leased = mailbox.receipt(queued.receipt.id);
+  assert.equal(leased.status, "leased");
+  assert.equal((await host.executeTool("spinetree_send", input)).status, "leased");
   assert.equal(calls.length, 1);
-  assert.equal(mailbox.receipt(result.receipt.id).status, "delivered");
+  assert.equal(calls[0].length, 1);
+  assert.deepEqual(JSON.parse(calls[0][0]), {
+    schema: "spinetree.message/v1", receiptId: leased.id, leaseId: leased.leaseId,
+    to: "agent-1", from: null, message: "hello",
+  });
+  completed.resolve({ id: "session-1" });
+  const { receipts: [delivered] } = await dispatching;
+  assert.equal(delivered.status, "delivered");
+  assert.equal(delivered.leaseId, leased.leaseId);
+  assert.equal(delivered.leaseUntil, null);
+  assert.deepEqual((await host.executeTool("spinetree_send", input)).receipt, delivered);
+  assert.equal(calls.length, 1);
 });
 
-test("send retries one receipt across unavailable leases, Pi rejection and transport failure", async (t) => {
+test("dispatch retries one queued receipt across unavailable leases, Pi rejection and transport failure", async t => {
   const registry = new MemoryAgentRegistry();
   registry.register({ agentId: "agent-1", sessionId: "session-1", branch: "child", status: "running" });
   const mailbox = new MemorySpineTreeMailbox();
@@ -819,44 +754,41 @@ test("send retries one receipt across unavailable leases, Pi rejection and trans
   const lease = {
     id: "session-1",
     get active() { return mode !== "inactive"; },
-    async prompt(...args) {
-      calls.push([mode, args]);
+    async prompt(text) {
+      calls.push([mode, JSON.parse(text)]);
       if (mode === "disconnected") throw new Error("connection lost before acknowledgement");
       if (mode !== "ready") throw Object.assign(new Error(mode), { name: "PiServerError", code: mode });
       return { id: "session-1" };
     },
-    async steer() { assert.fail("send must use prompt"); },
+    async steer() { assert.fail("dispatch must use prompt"); },
   };
-  const host = new SpinePluginHost({
-    sessions: createPiSessionAdapter(() => mode === "missing" ? undefined : lease),
-  });
+  const sessions = createPiSessionAdapter(() => mode === "missing" ? undefined : lease);
+  const host = new SpinePluginHost({ sessions });
   t.after(() => host.dispose());
   host.register(canonicalPlugin);
   host.register(createSpineTreePlugin({ registry, mailbox }));
   await host.activateAll();
-
-  const input = { to: "agent-1", message: "hello", requestId: "caller-1" };
+  await host.executeTool("spinetree_send", { to: "agent-1", message: "hello", requestId: "caller-1" });
   let attempt = 0;
   for (const nextMode of ["missing", "inactive", "busy", "session_locked", "disconnected", "invalid_request"]) {
     mode = nextMode;
-    const result = await host.executeTool("spinetree_send", input);
-    assert.equal(result.receipt.id, "mail-1");
-    assert.equal(result.receipt.requestId, "caller-1");
-    assert.equal(result.receipt.attempt, ++attempt);
-    assert.equal(result.status, "queued");
-    assert.equal(result.receipt.status, "queued");
-    assert.equal(result.receipt.leaseId, null);
-    assert.equal(result.receipt.lastError,
-      mode === "disconnected" ? "connection lost before acknowledgement"
-        : mode === "invalid_request" ? "invalid_request" : "session request was not accepted");
+    const { receipts: [receipt] } = await dispatchSpineTreeMailbox({ registry, mailbox, sessions });
+    assert.equal(receipt.id, "mail-1");
+    assert.equal(receipt.requestId, "caller-1");
+    assert.equal(receipt.attempt, ++attempt);
+    assert.equal(receipt.status, "queued");
+    assert.equal(receipt.leaseId, null);
+    assert.equal(receipt.lastError, mode === "disconnected" ? "connection lost before acknowledgement"
+      : mode === "invalid_request" ? "invalid_request" : "session request was not accepted");
   }
   mode = "ready";
-  const delivered = await host.executeTool("spinetree_send", input);
-  assert.equal(delivered.receipt.id, "mail-1");
-  assert.equal(delivered.receipt.attempt, ++attempt);
+  const { receipts: [delivered] } = await dispatchSpineTreeMailbox({ registry, mailbox, sessions });
+  assert.equal(delivered.id, "mail-1");
+  assert.equal(delivered.attempt, ++attempt);
   assert.equal(delivered.status, "delivered");
-  assert.deepEqual(calls, ["busy", "session_locked", "disconnected", "invalid_request", "ready"]
-    .map(mode => [mode, ["hello"]]));
+  assert.deepEqual(calls.map(([mode, envelope]) => [mode, envelope.message, envelope.receiptId]),
+    ["busy", "session_locked", "disconnected", "invalid_request", "ready"].map(mode => [mode, "hello", "mail-1"]));
+  assert.equal(new Set(calls.map(([, envelope]) => envelope.leaseId)).size, calls.length);
 });
 
 test("validates Agent addresses and keeps send contract-only without explicit dependencies", async () => {

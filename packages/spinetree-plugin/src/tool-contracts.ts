@@ -63,7 +63,7 @@ export const toolContracts = {
     },
   },
   send: {
-    description: "Queue a message to a registered non-ended AgentId and attempt delivery through its Pi session. requestId reuses the same receipt for the same message. Delivery can retry and is at least once; delivered does not mean observed.",
+    description: "Enqueue a message to a registered non-ended AgentId and return its receipt immediately after storage. Caller-driven dispatch delivers it later; this tool never waits for the recipient. requestId reuses the same receipt for the same message. Delivery is at least once; queued or delivered does not mean observed.",
     parameters: {
       type: "object",
       properties: {
@@ -77,12 +77,13 @@ export const toolContracts = {
     },
   },
   observe: {
-    description: "Explicitly confirm that the recipient Agent observed a delivered receipt. agentId must match its recipient and be non-ended. Repeated observation is idempotent; queued or leased receipts cannot be observed.",
+    description: "Confirm receipt of a spinetree.message/v1 prompt using receiptId, leaseId and agentId=to from its JSON envelope. Observe during the prompt before replying with send to from, if present. agentId must be the non-ended recipient. Repeated observation is idempotent. leaseId is required while leased; queued/failed receipts cannot be observed. Observation does not assert task completion.",
     parameters: {
       type: "object",
       properties: {
         receiptId: nonEmptyString,
-        agentId: { ...nonEmptyString, description: "Recipient AgentId" },
+        agentId: { ...nonEmptyString, description: "Recipient AgentId (envelope.to)" },
+        leaseId: { ...nonEmptyString, description: "Delivery attempt token from the message envelope; required while leased" },
       },
       required: ["receiptId", "agentId"],
       additionalProperties: false,

@@ -35,19 +35,19 @@ current `spine-core` implementation remains in SpineCodex and is identified by
   `state.json` objects, and `git update-ref` performs expected-HEAD CAS. The
   default factory remains contract-only and creates no workspace state.
   Explicit registry and mailbox adapters additionally enable `spinetree_send`:
-  AgentId addresses are resolved to PiSession IDs, receipts are leased before
-  `sessions.request`, and rejected or transiently failed delivery returns the
-  receipt to `queued`.
+  v2 validates AgentId addresses and only enqueues. Explicit caller-driven
+  dispatch leases receipts and calls `sessions.request`; send never waits for
+  the recipient prompt. See the [message contract](packages/spinetree-plugin/README.md#queued-messaging-and-observation).
 
   A mailbox that also exposes `receipt()` enables `spinetree_observe`. The
-  caller supplies `{ receiptId, agentId }`; the plugin resolves that Agent,
+  caller supplies `{ receiptId, agentId, leaseId? }`; the plugin resolves that Agent,
   checks that the receipt's `to` field names the same Agent, and then performs
   the mailbox's idempotent `observed()` transition. This is an explicit
   recipient acknowledgement, not an automatic consequence of Pi accepting a
   prompt. The Host contract has no caller identity field, so the declared
   `agentId` is checked against the registry but is not a transport-level
-  authentication mechanism. Unknown, ended, foreign, queued, or unknown
-  receipts return typed observation errors.
+  authentication mechanism. In-prompt observation requires the envelope leaseId.
+  Queued/failed receipts, wrong recipients and stale tokens return typed errors.
 
   Registry and mailbox persistence use the same immutable snapshot and HEAD as
   the ProjectBranch tree. The application creates and initializes one
@@ -136,30 +136,27 @@ then awaits `prompt(text)` or `steer(text)`. Successful resolution returns
 `session_locked` error returns `accepted: false`. Other errors propagate
 unchanged. The adapter adds no transport or connection lifecycle.
 
-When used with explicit SpineTree registry/mailbox adapters, `spinetree_send`
-routes AgentId to the corresponding Pi session, keeps the receipt leased while
-`prompt` is pending, and marks it delivered when the command resolves. Rejected
-requests and ordinary errors return to `queued`; errors explicitly marked
-`permanent: true` produce `failed` under the existing mailbox policy.
-Retrying the same caller requestId reuses its receipt. There is no automatic
-retry worker. `requestId` is echoed only in the local Host response: Pi's
-prompt/steer commands do not accept this mailbox ID. A lost acknowledgement
-may therefore cause duplicate remote delivery on retry. `delivered` does not
-mean the model observed the message, and this adapter never marks `observed`.
-`spinetree_observe` is the separate recipient acknowledgement path; it does
-not consume queued receipts or run a background worker. Tests cover the
-adapter and mailbox with simulated leases; actual Pi Server/Client transport
-integration remains to be verified.
+With explicit SpineTree adapters, `spinetree_send` persists a queued receipt and
+returns. `dispatchSpineTreeMailbox({ registry, mailbox, sessions, limit })` selects
+a bounded batch of due queued receipts or expired leases and routes them to Pi.
+Prompt text is a `spinetree.message/v1` JSON envelope containing receiptId,
+leaseId, to, from and the original message. A recipient can observe with this
+identity and enqueue a reply while its prompt is still running. Replies wait for
+a subsequent dispatcher pass; there is no nested prompt call from send.
 
-`dispatchSpineTreeMailbox({ registry, mailbox, sessions, limit })` is an
-explicit, caller-driven recovery pass for persisted work. It reads at most
-`limit` due `queued` receipts and expired leases in enqueue order, acquires
-each lease once, and routes the receipt through the same Pi session request
-path as `spinetree_send`. Missing or ended Agents become `failed`; rejected
-or transiently failed requests return to `queued`; lease races are reported
-in `skipped`. The function does not start a worker, schedule itself, or add a
-model-visible tool. Lease expiry and lost acknowledgements can still cause
-duplicate remote delivery, so the caller controls when to run another pass.
+The adapter's `accepted` still means prompt completion. Without observation,
+success marks delivered, rejection/transient errors requeue, and errors marked
+`permanent: true` fail. Once observed, later results for the same token return the
+observed state unchanged. Old lease tokens cannot acknowledge a newer attempt.
+Missing/ended Agents fail; lease acquisition races are reported in `skipped`.
+
+The caller owns dispatcher scheduling and timeout policy. Long prompts exceeding
+the lease interval or lost acknowledgements can cause duplicates. requestId only
+deduplicates local enqueue; Pi prompt commands have no remote dedupe field. The
+adapter never marks observed itself. Tests use simulated leases; project task
+smokes also exercise official Unix/CBOR transport with deterministic runtimes,
+not production model behavior. Details and migration from send v1 are in the
+[message contract](packages/spinetree-plugin/README.md#queued-messaging-and-observation).
 
 `spinetree_rejuvenate` is enabled only with an explicit snapshot store, a
 registry that exposes `list()` and `registerExclusive()`, and a caller-owned `rejuvenator.provision`
