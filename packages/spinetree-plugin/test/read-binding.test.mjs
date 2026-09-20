@@ -1,0 +1,93 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SpinePluginHost } from "@spinejit/spine-host";
+import {
+  createSpineTreePlugin, GitSpineTreeStore, GitSpineTreeAgentRegistry,
+  GitSpineTreeMailbox, MemorySpineTreeStore,
+} from "../dist/index.js";
+
+const branch = {
+  id: "root", parent: null, goal: "project", constraints: [], skills: [], tools: [],
+  memory: null, memoryVersion: 0, memorySource: null, status: "live",
+};
+const snapshot = { branches: { root: branch }, agents: {} };
+const binding = { agentId: "a", sessionId: "pi-a", branch: "root", scope: "scope-a", status: "running" };
+async function hostFor(options, sessions) {
+  const host = new SpinePluginHost({ sessions });
+  host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0" }, activate() {} });
+  host.register(createSpineTreePlugin(options));
+  await host.activateAll();
+  return host;
+}
+
+test("persisted lifecycle binding is discoverable and routes read -> send -> observe after reload", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spinetree-read-binding-"));
+  const store = GitSpineTreeStore.initialize(root, snapshot);
+  const registry = new GitSpineTreeAgentRegistry(store);
+  await registry.register(binding);
+  const reloaded = new GitSpineTreeStore(root);
+  const calls = [];
+  const host = await hostFor({
+    store: reloaded, registry: new GitSpineTreeAgentRegistry(reloaded), mailbox: new GitSpineTreeMailbox(reloaded),
+  }, { async request(request) { calls.push(request); return { accepted: true }; } });
+  const head = reloaded.head();
+  const read = await host.executeTool("spinetree_read", { branch: "root" });
+  assert.equal(read.schema, "spinetree.read.result/v2");
+  assert.deepEqual(read.binding, binding);
+  assert.equal(read.head, head);
+  assert.deepEqual(await host.executeTool("spinetree_read", { branch: "root" }), read);
+  assert.equal(reloaded.head(), head);
+  assert.deepEqual(reloaded.readSnapshot(head).agents, {});
+  const sent = await host.executeTool("spinetree_send", { to: read.binding.agentId, message: "hello" });
+  assert.deepEqual(calls, [{ targetSessionId: read.binding.sessionId, operation: "prompt", text: "hello", requestId: sent.receipt.id }]);
+  assert.equal(sent.receipt.status, "delivered");
+  const observed = await host.executeTool("spinetree_observe", { receiptId: sent.receipt.id, agentId: read.binding.agentId });
+  assert.equal(observed.receipt.status, "observed");
+  await registry.transition(binding.agentId, "paused");
+  assert.deepEqual((await host.executeTool("spinetree_read", { branch: "root" })).binding, { ...binding, status: "paused" });
+  await registry.transition(binding.agentId, "ended");
+  assert.equal((await host.executeTool("spinetree_read", { branch: "root" })).binding, null);
+  await host.dispose();
+});
+
+test("binding stays at captured HEAD even when lifecycle advances during read", async () => {
+  const store = new MemorySpineTreeStore({ ...snapshot, registry: { a: binding } });
+  const registry = new GitSpineTreeAgentRegistry(store);
+  const captured = store.head();
+  const calls = [];
+  const host = await hostFor({
+    store: {
+      async head() { calls.push("head"); await registry.transition("a", "ended"); return captured; },
+      readSnapshot(head) { calls.push(head); return store.readSnapshot(head); },
+    },
+    registry: { resolve() { assert.fail("read queried live registry"); } },
+  });
+  const read = await host.executeTool("spinetree_read", { branch: "root" });
+  assert.equal(read.head, captured);
+  assert.deepEqual(read.binding, binding);
+  assert.deepEqual(calls, ["head", captured]);
+  assert.equal((await registry.resolve("a")).status, "ended");
+  read.binding.sessionId = "modified result";
+  assert.equal(store.readSnapshot(captured).registry.a.sessionId, "pi-a");
+  await host.dispose();
+});
+
+test("read ignores legacy agents and other branches, and rejects ambiguous active bindings", async () => {
+  const base = {
+    ...snapshot,
+    agents: { legacy: { id: "legacy", working: "root", live: ["root"], status: "running" } },
+  };
+  for (const registry of [undefined, {}, { a: { ...binding, status: "ended" } }, { a: { ...binding, branch: "other" } }]) {
+    const host = await hostFor({ store: new MemorySpineTreeStore({ ...base, registry }) });
+    assert.equal((await host.executeTool("spinetree_read", { branch: "root" })).binding, null);
+    await host.dispose();
+  }
+  const host = await hostFor({ store: new MemorySpineTreeStore({ ...base, registry: {
+    a: binding, b: { ...binding, agentId: "b", status: "paused" },
+  } }) });
+  await assert.rejects(host.executeTool("spinetree_read", { branch: "root" }), { code: "ambiguous-binding" });
+  await host.dispose();
+});

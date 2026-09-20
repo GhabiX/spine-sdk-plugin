@@ -2,8 +2,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { PiSessionAdapter, PluginManifest, PluginTool, SpinePlugin, SpinePluginContext } from "@spinejit/spine-host";
+import { toolContracts } from "./tool-contracts.js";
 
-export const SPINETREE_READ_RESULT_SCHEMA = "spinetree.read.result/v1" as const;
+export const SPINETREE_READ_RESULT_SCHEMA = "spinetree.read.result/v2" as const;
 export const SPINETREE_CHANGE_RESULT_SCHEMA = "spinetree.change.result/v1" as const;
 export const SPINETREE_SEND_RESULT_SCHEMA = "spinetree.send.result/v1" as const;
 export const SPINETREE_OBSERVE_RESULT_SCHEMA = "spinetree.observe.result/v1" as const;
@@ -923,11 +924,7 @@ export interface SpineTreeInheritance {
   }[];
 }
 
-export interface SpineTreeBinding {
-  readonly agent: string;
-  readonly working: string;
-  readonly live: readonly string[];
-}
+export type SpineTreeBinding = SpineTreeAgentBinding;
 
 export interface SpineTreeReadResult {
   readonly schema: typeof SPINETREE_READ_RESULT_SCHEMA;
@@ -939,7 +936,7 @@ export interface SpineTreeReadResult {
 }
 
 export class SpineTreeReadError extends Error {
-  readonly code: "invalid-input" | "store-unavailable" | "unknown-branch";
+  readonly code: "invalid-input" | "store-unavailable" | "unknown-branch" | "ambiguous-binding";
 
   constructor(code: SpineTreeReadError["code"], message: string) {
     super(message);
@@ -1002,7 +999,7 @@ function sendTool(
   context: SpinePluginContext,
 ): PluginTool {
   return {
-    description: "Queue and deliver a message to a registered Agent through its Pi session",
+    ...toolContracts.send,
     execute: async (input: unknown) => {
       const parsed = parseSendInput(input);
       const target = await registry.resolve(parsed.to);
@@ -1085,7 +1082,7 @@ function observeTool(
   reader: SpineTreeMailboxReader,
 ): PluginTool {
   return {
-    description: "Confirm that the named recipient Agent observed a delivered mailbox receipt",
+    ...toolContracts.observe,
     execute: async (input: unknown) => {
       const parsed = parseObserveInput(input);
       const agent = await registry.resolve(parsed.agentId);
@@ -1152,7 +1149,7 @@ function rejuvenateTool(
   rejuvenator: SpineTreeRejuvenator,
 ): PluginTool {
   return {
-    description: "Provision a new Agent for a capped ProjectBranch through an explicit caller-owned adapter",
+    ...toolContracts.rejuvenate,
     execute: async (input: unknown) => {
       const parsed = parseRejuvenateInput(input);
       const head = await store.head();
@@ -1299,9 +1296,10 @@ function transitionBinding(binding: SpineTreeAgentBinding, status: SpineTreeAgen
   return { ...binding, status };
 }
 
-function contractTool(context: SpinePluginContext, operation: string): PluginTool {
+function contractTool(context: SpinePluginContext, operation: keyof typeof toolContracts): PluginTool {
   return {
-    description: `SpineTree ${operation} contract placeholder`,
+    ...toolContracts[operation],
+    description: `${toolContracts[operation].description} Unavailable in this host: required adapters are not configured; returns contract-only without performing the operation.`,
     execute: async () => ({
       schema: "spinetree.operation.result/v1",
       operation,
@@ -1313,14 +1311,14 @@ function contractTool(context: SpinePluginContext, operation: string): PluginToo
 
 function readTool(store: SpineTreeSnapshotStore): PluginTool {
   return {
-    description: "Read one ProjectBranch from a fixed SpineTree HEAD snapshot",
+    ...toolContracts.read,
     execute: async (input: unknown) => readSnapshot(store, input),
   };
 }
 
 function changeTool(store: SpineTreeChangeStore): PluginTool {
   return {
-    description: "Atomically change ProjectBranch topology and attributes with a fixed HEAD CAS token",
+    ...toolContracts.change,
     execute: async (input: unknown) => {
       const parsed = parseChangeInput(input);
       return store.change(parsed.expectedHead, parsed.changes);
@@ -1627,12 +1625,13 @@ function overlay(path: readonly SpineTreeBranch[], key: "skills" | "tools"): Spi
 }
 
 function binding(snapshot: SpineTreeSnapshot, branchId: string): SpineTreeBinding | null {
-  const agent = Object.values(snapshot.agents).find(
-    candidate => candidate.status !== "ended" && candidate.live.includes(branchId),
+  const bindings = Object.values(snapshot.registry ?? {}).filter(
+    candidate => candidate.status !== "ended" && candidate.branch === branchId,
   );
-  return agent === undefined
-    ? null
-    : { agent: agent.id, working: agent.working, live: [...agent.live] };
+  if (bindings.length > 1) {
+    throw new SpineTreeReadError("ambiguous-binding", `ProjectBranch ${branchId} has multiple active Agents`);
+  }
+  return bindings[0] === undefined ? null : clone(bindings[0]);
 }
 
 function validateGitHead(head: string): void {

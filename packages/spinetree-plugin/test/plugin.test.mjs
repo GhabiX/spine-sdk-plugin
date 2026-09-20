@@ -94,6 +94,9 @@ test("reads one fixed HEAD snapshot with inheritance, children, and binding", as
       a_child: { id: "a_child", working: "leaf", live: ["leaf"], status: "running" },
       a_ended: { id: "a_ended", working: "child", live: ["child"], status: "ended" },
     },
+    registry: {
+      current: { agentId: "current", sessionId: "session-child", branch: "child", scope: "scope-2", status: "paused" },
+    },
   };
   const calls = [];
   const store = {
@@ -136,7 +139,7 @@ test("reads one fixed HEAD snapshot with inheritance, children, and binding", as
       ],
     },
     children: ["leaf"],
-    binding: { agent: "a_root", working: "child", live: ["root", "child"] },
+    binding: snapshot.registry.current,
   });
   assert.deepEqual(calls, [["head"], ["readSnapshot", "head-7"]]);
   assert.equal(JSON.stringify(snapshot), before);

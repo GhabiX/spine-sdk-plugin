@@ -11,8 +11,13 @@ export interface PluginManifest {
   readonly storageNamespace?: string;
 }
 
-export interface PluginTool {
+export interface PluginToolDescription {
   readonly description: string;
+  /** JSON Schema for the input object; validation is owned by the tool or its caller. */
+  readonly parameters?: Readonly<Record<string, unknown>>;
+}
+
+export interface PluginTool extends PluginToolDescription {
   execute(input: unknown): Promise<unknown> | unknown;
 }
 
@@ -242,6 +247,17 @@ export class SpinePluginHost {
 
   listTools(): readonly string[] {
     return [...this.#tools.keys()].sort();
+  }
+
+  describeTool(name: string): PluginToolDescription {
+    const tool = this.#tools.get(name);
+    if (tool === undefined) {
+      throw new SpinePluginHostError("unknown-tool", `Tool ${name} is not registered`);
+    }
+    return {
+      description: tool.description,
+      ...(tool.parameters === undefined ? {} : { parameters: structuredClone(tool.parameters) }),
+    };
   }
 
   listCommands(): readonly string[] {
