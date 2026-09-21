@@ -60,12 +60,13 @@ export async function writeChildPrefixSession(options: {
   destPath: string;
   entries: readonly unknown[];
   parentSession?: string;
-}): Promise<void> {
+}): Promise<string> {
   await mkdir(dirname(options.destPath), { recursive: true });
+  const id = randomUUID();
   const header: Record<string, unknown> = {
     type: "session",
     version: CURRENT_SESSION_VERSION,
-    id: randomUUID(),
+    id,
     timestamp: new Date().toISOString(),
     cwd: options.cwd,
   };
@@ -77,6 +78,7 @@ export async function writeChildPrefixSession(options: {
     lines.push(JSON.stringify(entry));
   }
   await writeFile(options.destPath, `${lines.join("\n")}\n`);
+  return id;
 }
 
 function safeSegment(value: string): string {

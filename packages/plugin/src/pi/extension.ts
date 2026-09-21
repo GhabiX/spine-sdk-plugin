@@ -69,8 +69,30 @@ export interface PiExtensionRuntimeFactory {
   create(thread: string): NodeSpineRuntime;
 }
 
+export interface PiChildInvocationContext {
+  readonly batchId: string;
+  readonly ordinal: number;
+  readonly attempt: number;
+  readonly mode: "initial" | "continue" | "retry";
+  readonly sessionId: string;
+  readonly sessionPath: string;
+  readonly assignment: string;
+  readonly task: SpawnTask;
+}
+
+export interface PiChildInvocation {
+  readonly command: string;
+  readonly args?: readonly string[];
+  readonly extensionPaths?: readonly string[];
+}
+
+export type PiChildInvocationFactory = (
+  context: PiChildInvocationContext,
+) => PiChildInvocation | Promise<PiChildInvocation>;
+
 export interface CreatePiExtensionOptions {
   runtimeFactory?: PiExtensionRuntimeFactory;
+  childInvocation?: PiChildInvocationFactory;
   onSessionReady?: (info: { sessionId: string; thread: string; runtime: NodeSpineRuntime; entries: readonly SessionEntry[] }) => Promise<void> | void;
   onSamplingCommit?: (info: { sessionId: string; commit: FinishSamplingResult; entries: readonly SessionEntry[] }) => Promise<void> | void;
 }
@@ -143,12 +165,16 @@ function activatePiExtension(pi: ExtensionAPI, options: CreatePiExtensionOptions
     treeSignature: null,
     samplingPrefix: null,
   };
-  registerSpineTools(pi, slot);
+  registerSpineTools(pi, slot, options.childInvocation);
   registerSpineCommands(pi, slot);
   registerLifecycleHandlers(pi, slot, runtimeFactory, options.onSessionReady, options.onSamplingCommit);
 }
 
-function registerSpineTools(pi: ExtensionAPI, slot: MutableSessionSlot): void {
+function registerSpineTools(
+  pi: ExtensionAPI,
+  slot: MutableSessionSlot,
+  childInvocation?: PiChildInvocationFactory,
+): void {
   for (const tool of loadCanonicalSpineTools()) {
     if (tool.name === "spine_spawn") {
       pi.registerTool({
@@ -182,7 +208,7 @@ function registerSpineTools(pi: ExtensionAPI, slot: MutableSessionSlot): void {
             executor: {
               async execute(task, child) {
                 try {
-                  const terminal = await executePiChild(pi, ctx, slot, tasks, task, child);
+                  const terminal = await executePiChild(pi, ctx, slot, tasks, task, child, childInvocation);
                   applySpawnTerminal(view, child.ordinal, {
                     ordinal: child.ordinal,
                     outcome: terminal.outcome,
@@ -653,6 +679,7 @@ async function executePiChild(
   tasks: readonly SpawnTask[],
   task: SpawnTask,
   child: { batchId: string; ordinal: number; signal: AbortSignal },
+  childInvocation?: PiChildInvocationFactory,
 ): Promise<SpawnChildTerminal> {
   if (slot.samplingPrefix === null) {
     throw new Error("Pi Spawn child prefix is missing; parent sampling did not start");
@@ -663,26 +690,43 @@ async function executePiChild(
     ordinal: child.ordinal,
     ...(parentSessionFile === undefined ? {} : { parentSessionFile }),
   });
-  await writeChildPrefixSession({
+  const sessionId = await writeChildPrefixSession({
     cwd: ctx.cwd,
     destPath,
     entries: slot.samplingPrefix,
     ...(parentSessionFile === undefined ? {} : { parentSession: parentSessionFile }),
   });
-  const invocation = piInvocation();
   const assignment = buildChildAssignment(task, tasks);
+  const invocation = childInvocation === undefined
+    ? { ...piInvocation(), extensionPaths: [EXTENSION_MODULE_PATH] }
+    : await childInvocation({
+      batchId: child.batchId,
+      ordinal: child.ordinal,
+      attempt: 0,
+      mode: "initial",
+      sessionId,
+      sessionPath: destPath,
+      assignment,
+      task,
+    });
+  if (typeof invocation.command !== "string" || invocation.command.length === 0) {
+    throw new Error("Pi Spawn child invocation requires a command");
+  }
+  const extensionPaths = invocation.extensionPaths ?? [EXTENSION_MODULE_PATH];
+  if (extensionPaths.length === 0 || extensionPaths.some((path) => typeof path !== "string" || path.length === 0)) {
+    throw new Error("Pi Spawn child invocation requires at least one extension module");
+  }
   const tools = childToolAllowlist(pi);
   const result = await pi.exec(
     invocation.command,
     [
-      ...invocation.args,
+      ...(invocation.args ?? []),
       "--mode",
       "json",
       "-p",
       "--session",
       destPath,
-      "--extension",
-      EXTENSION_MODULE_PATH,
+      ...extensionPaths.flatMap((path) => ["--extension", path]),
       `--${CHILD_FLAG}=true`,
       ...(tools.length === 0 ? [] : ["--tools", tools.join(",")]),
       ...childRuntimeFlags(ctx),
