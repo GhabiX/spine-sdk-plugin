@@ -10,12 +10,14 @@ import extension, {
 } from "../dist/pi/extension.js";
 import { createNodeSpineRuntime } from "@spinejit/spine-sdk/node";
 import { resolvePiInvocation } from "../dist/pi/invocation.js";
+import { SPINE_TREE_VIEW_REQUEST } from "../dist/pi/tree-view-contract.js";
 
 function mockPi() {
   const handlers = new Map();
   const tools = new Map();
   const commands = new Map();
   const entries = [];
+  const eventListeners = new Map();
   let childFlag = false;
   return {
     handlers,
@@ -26,6 +28,17 @@ function mockPi() {
       childFlag = value;
     },
     api: {
+      events: {
+        on(name, listener) {
+          const listeners = eventListeners.get(name) ?? new Set();
+          listeners.add(listener);
+          eventListeners.set(name, listeners);
+          return () => listeners.delete(listener);
+        },
+        emit(name, data) {
+          for (const listener of eventListeners.get(name) ?? []) listener(data);
+        },
+      },
       registerFlag() {},
       getFlag(name) {
         return name === "spine-child" && childFlag;
@@ -105,6 +118,8 @@ function extensionContext(sessionId = "pi-session", options = {}) {
         setWidget(key, content, options) {
           widgets.push([key, content, options]);
         },
+        ...(options.select === undefined ? {} : { select: options.select }),
+        ...(options.input === undefined ? {} : { input: options.input }),
       },
       abort() {
         aborts += 1;
@@ -175,7 +190,7 @@ function widgetLines(widget, width = 80) {
       return text;
     },
   };
-  return content(null, theme).render(width);
+  return content({ terminal: { rows: 40 }, requestRender() {} }, theme).render(width);
 }
 
 function user(content) {
@@ -217,7 +232,7 @@ test("default export is a loadable Pi extension with the canonical tools", () =>
     );
   }
   assert.equal(typeof pi.tools.get("spine_spawn").renderCall, "function");
-  assert.deepEqual([...pi.commands.keys()].sort(), ["spine-tree"]);
+  assert.deepEqual([...pi.commands.keys()], []);
   assert.ok(pi.handlers.has("context"));
   assert.ok(pi.handlers.has("before_agent_start"));
   assert.ok(pi.handlers.has("session_before_compact"));
@@ -497,9 +512,11 @@ test("Spawn child invocation inherits parent extensions and preserves the prompt
   });
   let childCommand;
   let childArgs;
+  const childInvocations = [];
   pi.api.exec = async (command, args) => {
     childCommand = command;
     childArgs = args;
+    childInvocations.push(args);
     return {
       stdout: JSON.stringify({
         type: "message_end",
@@ -565,14 +582,16 @@ test("Spawn child invocation inherits parent extensions and preserves the prompt
   assert.equal(childArgs[childArgs.indexOf("--model") + 1], "gemini-3.8-flash");
   assert.ok(childArgs.includes("--thinking"));
   assert.equal(childArgs[childArgs.indexOf("--thinking") + 1], "low");
-  const sessionPath = childArgs[childArgs.indexOf("--session") + 1];
+  const peerArgs = childInvocations.find((args) => args.at(-1)?.includes("You are: peer"));
+  assert.ok(peerArgs);
+  const sessionPath = peerArgs[peerArgs.indexOf("--session") + 1];
   assert.equal(sessionPath, "/tmp/spine-spawn/spawn-1/1.jsonl");
   const prefix = await readFile(sessionPath, "utf8");
   assert.match(prefix, /parent prefix TOKEN/);
   assert.match(prefix, /"parentSession":"\/tmp\/parent-session.jsonl"/);
-  assert.match(childArgs.at(-1), /You are: peer/);
-  assert.match(childArgs.at(-1), /already an active branch scope/);
-  assert.match(childArgs.at(-1), /Assignment:\ndo peer work/);
+  assert.match(peerArgs.at(-1), /You are: peer/);
+  assert.match(peerArgs.at(-1), /already an active branch scope/);
+  assert.match(peerArgs.at(-1), /Assignment:\ndo peer work/);
   assert.equal(result.details.results[0].memory_body, "typed child memory");
   assert.equal(pi.entries.at(-1).customType, "spine.spawn-terminal.v1");
 });
@@ -698,6 +717,151 @@ test("Spawn records mixed receipts when one child omits typed return", async () 
     pi.entries.filter((entry) => entry.customType === "spine.spawn-terminal.v1").length,
     2,
   );
+});
+
+test("Spawn Continue reuses the same session and restores missing assignment context once", async () => {
+  const calls = [];
+  const choices = [];
+  const ctx = extensionContext("pi-session", {
+    sessionFile: "/tmp/parent-spawn-recovery.jsonl",
+    select: async (_title, options) => {
+      choices.push(options);
+      return "Continue";
+    },
+    input: async () => "focus on the existing work",
+  });
+  const pi = mockPi();
+  pi.api.exec = async (_command, args) => {
+    const sessionPath = args[args.indexOf("--session") + 1];
+    const prompt = args.at(-1);
+    calls.push({ sessionPath, prompt });
+    if (prompt.includes("You are: peer")) {
+      return {
+        stdout: JSON.stringify({
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [{
+              type: "toolCall",
+              name: "spine_child_return",
+              arguments: { memory: "peer child memory" },
+            }],
+          },
+        }),
+        stderr: "",
+        code: 0,
+        killed: false,
+      };
+    }
+    const childAttempts = calls.filter(({ prompt: childPrompt }) =>
+      childPrompt.includes("You are: child"),
+    ).length;
+    if (childAttempts === 1) {
+      return { stdout: "", stderr: "first attempt failed", code: 1, killed: false };
+    }
+    return {
+      stdout: JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{
+            type: "toolCall",
+            name: "spine_child_return",
+            arguments: { memory: "continued child memory" },
+          }],
+        },
+      }),
+      stderr: "",
+      code: 0,
+      killed: false,
+    };
+  };
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit(
+    "before_provider_request",
+    { type: "before_provider_request", payload: { input: [] } },
+    ctx.context,
+  );
+  const tasks = [
+    { summary: "child", prompt: "recover exact work" },
+    { summary: "peer", prompt: "complete peer work" },
+  ];
+  await pi.emit(
+    "tool_call",
+    {
+      type: "tool_call",
+      toolCallId: "spawn-gated-continue",
+      toolName: "spine_spawn",
+      input: { tasks },
+    },
+    ctx.context,
+  );
+  const result = await pi.tools.get("spine_spawn").execute(
+    "spawn-gated-continue",
+    { tasks },
+    undefined,
+    undefined,
+    ctx.context,
+  );
+
+  assert.deepEqual(choices, [["Continue", "Retry", "Abandon"]]);
+  const childCalls = calls.filter(({ prompt }) => prompt.includes("You are: child"));
+  assert.equal(childCalls.length, 2);
+  assert.equal(childCalls[0].sessionPath, childCalls[1].sessionPath);
+  assert.match(childCalls[1].prompt, /Assignment context:/);
+  assert.equal(result.details.results[0].outcome, "completed");
+  assert.equal(result.details.results[0].memory_body, "continued child memory");
+});
+
+test("Pi exec rejection remains host-fatal and does not open the recovery gate", async () => {
+  let selectCalls = 0;
+  const ctx = extensionContext("pi-session", {
+    sessionFile: "/tmp/parent-spawn-reject.jsonl",
+    select: async () => {
+      selectCalls += 1;
+      return "Retry";
+    },
+    input: async () => "",
+  });
+  const pi = mockPi();
+  pi.api.exec = async () => {
+    throw new Error("host transport failure");
+  };
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit(
+    "before_provider_request",
+    { type: "before_provider_request", payload: { input: [] } },
+    ctx.context,
+  );
+  await pi.emit(
+    "tool_call",
+    {
+      type: "tool_call",
+      toolCallId: "spawn-gated-reject",
+      toolName: "spine_spawn",
+      input: { tasks: [
+        { summary: "child", prompt: "fail host" },
+        { summary: "peer", prompt: "peer host" },
+      ] },
+    },
+    ctx.context,
+  );
+  await assert.rejects(
+    pi.tools.get("spine_spawn").execute(
+      "spawn-gated-reject",
+      { tasks: [
+        { summary: "child", prompt: "fail host" },
+        { summary: "peer", prompt: "peer host" },
+      ] },
+      undefined,
+      undefined,
+      ctx.context,
+    ),
+    /failed at ordinal 0/,
+  );
+  assert.equal(selectCalls, 0);
 });
 
 test("WASM-backed extension completes one Pi Open sampling transaction", async () => {
@@ -1165,4 +1329,43 @@ test("typed child-memory extraction rejects prose and duplicate returns", () => 
   assert.equal(extractTypedChildMemory(`not-json\n${event}\n`), "bounded child memory");
   assert.throws(() => extractTypedChildMemory("plain final answer"), /0 typed terminal memories/);
   assert.throws(() => extractTypedChildMemory(`${event}\n${event}`), /2 typed terminal memories/);
+});
+
+
+test("optional browser connects synchronously and core invalidates it on session shutdown", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  createPiExtension()(pi.api);
+  const connections = [];
+  const request = { version: 1, sessionId: "pi-session", accept: value => connections.push(value) };
+  pi.api.events.emit(SPINE_TREE_VIEW_REQUEST, request);
+  assert.equal(connections.length, 0);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  pi.api.events.emit(SPINE_TREE_VIEW_REQUEST, request);
+  assert.equal(connections.length, 1);
+  assert.equal(connections[0].snapshot.sessionId, "pi-session");
+  const ended = [];
+  connections[0].attach({ render: () => ["browser"], invalidate() {} }, reason => ended.push(reason));
+  assert.deepEqual(widgetLines(ctx.widgets.at(-1)), ["browser"]);
+  await pi.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx.context);
+  assert.deepEqual(ended, ["invalidated"]);
+  pi.api.events.emit(SPINE_TREE_VIEW_REQUEST, request);
+  assert.equal(connections.length, 1);
+  assert.equal(ctx.aborts, 0);
+});
+
+test("widget registration failure does not poison canonical session initialization", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  ctx.context.ui.setWidget = () => { throw new Error("UI unavailable"); };
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  assert.equal(ctx.aborts, 0);
+  const reply = await pi.emit("before_agent_start", { systemPrompt: "base" }, ctx.context);
+  assert.ok(reply.systemPrompt.length > 0);
+  let offered = false;
+  pi.api.events.emit(SPINE_TREE_VIEW_REQUEST, { version: 1, sessionId: "pi-session", accept() { offered = true; } });
+  assert.equal(offered, false);
+  await pi.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx.context);
+  assert.equal(ctx.aborts, 0);
 });

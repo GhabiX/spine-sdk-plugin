@@ -9,7 +9,10 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   buildChildAssignment,
   CHILD_RETURN_TOOL,
+  buildChildContinuation,
   childSessionPath,
+  inspectChildSession,
+  readChildSessionIdentity,
   writeChildPrefixSession,
 } from "../dist/pi/child-session.js";
 
@@ -45,12 +48,13 @@ test("written prefix session is a Pi-openable fork of the parent branch", async 
       message: { role: "user", content: "parent prefix TOKEN", timestamp: 1 },
     },
   ];
-  await writeChildPrefixSession({
+  const id = await writeChildPrefixSession({
     cwd: "/tmp/project",
     destPath: dest,
     entries,
     parentSession: "/tmp/parent.jsonl",
   });
+  assert.equal(await readChildSessionIdentity(dest), id);
   const raw = await readFile(dest, "utf8");
   assert.match(raw, /"parentSession":"\/tmp\/parent.jsonl"/);
   const session = SessionManager.open(dest, undefined, "/tmp/project");
@@ -73,4 +77,88 @@ test("child session path stays next to the parent session file when one exists",
     childSessionPath({ batchId: "spawn/1", ordinal: 2 }),
     /pi-spine-spawn\/spawn_1\/2\.jsonl$/,
   );
+  assert.match(
+    childSessionPath({ batchId: "spawn-1", ordinal: 2, attempt: 1 }),
+    /pi-spine-spawn\/spawn-1\/2\.attempt-1\.jsonl$/,
+  );
+});
+
+test("child continuation preserves the active session and optional guidance", () => {
+  const prompt = buildChildContinuation("focus on the failing test");
+  assert.match(prompt, /same active branch/);
+  assert.match(prompt, /focus on the failing test/);
+  assert.match(prompt, /spine_child_return exactly once/);
+});
+
+test("child session inspection detects durable assignment context", async () => {
+  const dest = join(await mkdtemp(join(tmpdir(), "pi-spine-inspect-")), "child.jsonl");
+  const assignment = buildChildAssignment(
+    { summary: "ALPHA", prompt: "return TOKEN_A" },
+    [{ summary: "ALPHA", prompt: "return TOKEN_A" }],
+  );
+  const id = await writeChildPrefixSession({
+    cwd: "/tmp/project",
+    destPath: dest,
+    entries: [],
+  });
+  const headerOnly = await inspectChildSession({
+    cwd: "/tmp/project",
+    destPath: dest,
+    expectedId: id,
+    assignment,
+  });
+  assert.equal(headerOnly.assignmentPresent, false);
+
+  const session = SessionManager.open(dest, undefined, "/tmp/project");
+  session.appendMessage({ role: "user", content: assignment, timestamp: Date.now() });
+  const durable = await inspectChildSession({
+    cwd: "/tmp/project",
+    destPath: dest,
+    expectedId: id,
+    assignment,
+  });
+  assert.equal(durable.assignmentPresent, true);
+  await assert.rejects(
+    inspectChildSession({
+      cwd: "/tmp/project",
+      destPath: dest,
+      expectedId: "wrong-session-id",
+      assignment,
+    }),
+    /identity changed/,
+  );
+});
+
+test("child session inspection rejects uncommitted nested Spawn staging", async () => {
+  const dest = join(await mkdtemp(join(tmpdir(), "pi-spine-staged-")), "child.jsonl");
+  const id = await writeChildPrefixSession({
+    cwd: "/tmp/project",
+    destPath: dest,
+    entries: [],
+  });
+  const session = SessionManager.open(dest, undefined, "/tmp/project");
+  session.appendCustomEntry("spine.spawn-terminal.v1", {
+    schema: "spine-plugin/pi/v1",
+    batchId: "nested-batch",
+    result: { ordinal: 0, outcome: "completed", memory_body: "nested memory" },
+  });
+
+  await assert.rejects(
+    inspectChildSession({
+      cwd: "/tmp/project",
+      destPath: dest,
+      expectedId: id,
+      assignment: "Assignment:\nreturn TOKEN_A",
+    }),
+    /uncommitted Spine Spawn staging/,
+  );
+});
+
+test("child continuation includes assignment only for the missing-context fallback", () => {
+  const assignment = "Assignment:\nreturn TOKEN_A";
+  const normal = buildChildContinuation();
+  const fallback = buildChildContinuation(undefined, assignment);
+  assert.doesNotMatch(normal, /Assignment context:/);
+  assert.match(fallback, /Assignment context:/);
+  assert.match(fallback, /return TOKEN_A/);
 });

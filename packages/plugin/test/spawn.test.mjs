@@ -6,6 +6,7 @@ import {
   recoverStagedSpawnResults,
   spawnResultsEqual,
   SpawnBatchExecutionError,
+  SpawnRecoveryCancelledError,
   SpawnRecoveryError,
 } from "../dist/index.js";
 
@@ -193,4 +194,134 @@ test("spawn recovery restores task order and rejects partial staging", () => {
     () => recoverStagedSpawnResults(tasks, staged.slice(0, 1)),
     SpawnRecoveryError,
   );
+});
+
+test("recoverable spawn gates settled failures and stages final results once", async () => {
+  const attempts = [];
+  const staged = [];
+  const decisions = [{ action: "continue" }, { action: "abandon" }];
+  const results = await executeSpawnBatch({
+    batchId: "recoverable",
+    tasks,
+    recovery: {
+      async choose(failures) {
+        assert.deepEqual(failures.map((failure) => failure.ordinal), [0]);
+        return decisions.shift();
+      },
+    },
+    executor: {
+      async execute(task, context) {
+        attempts.push([task.summary, context.ordinal, context.attempt, context.mode]);
+        return context.ordinal === 0
+          ? { outcome: "errored", memoryBody: "failed", diagnostic: "failed" }
+          : { outcome: "completed", memoryBody: "done" };
+      },
+    },
+    staging: { async persistTerminal(_batchId, result) { staged.push(result); } },
+  });
+  assert.deepEqual(attempts, [
+    ["first", 0, 0, "initial"],
+    ["second", 1, 0, "initial"],
+    ["first", 0, 0, "continue"],
+  ]);
+  assert.deepEqual(results.map((result) => result.outcome), ["errored", "completed"]);
+  assert.deepEqual(staged.map((result) => result.ordinal), [0, 1]);
+});
+
+test("recoverable spawn exposes Continue capability without changing the receipt", async () => {
+  const seen = [];
+  const staged = [];
+  const results = await executeSpawnBatch({
+    batchId: "recoverability",
+    tasks,
+    recovery: {
+      async choose(failures) {
+        seen.push(failures.map(({ ordinal, continueable, continueReason }) => ({
+          ordinal,
+          continueable,
+          continueReason,
+        })));
+        return { action: "abandon" };
+      },
+    },
+    executor: {
+      async execute(task, context) {
+        return context.ordinal === 0
+          ? {
+            outcome: "errored",
+            memoryBody: "session cannot continue",
+            diagnostic: "session identity changed",
+            recovery: { continueable: false, reason: "session identity changed" },
+          }
+          : { outcome: "completed", memoryBody: `${task.summary}-memory` };
+      },
+    },
+    staging: { async persistTerminal(_batchId, result) { staged.push(result); } },
+  });
+  assert.deepEqual(seen, [[{
+    ordinal: 0,
+    continueable: false,
+    continueReason: "session identity changed",
+  }]]);
+  assert.equal("continueable" in results[0], false);
+  assert.deepEqual(staged.map(({ ordinal }) => ordinal), [0, 1]);
+});
+
+test("recoverable spawn rejects an impossible Continue decision", async () => {
+  const staged = [];
+  await assert.rejects(
+    executeSpawnBatch({
+      batchId: "continue-unavailable",
+      tasks,
+      recovery: {
+        async choose() {
+          return { action: "continue" };
+        },
+      },
+      executor: {
+        async execute(_task, context) {
+          return context.ordinal === 0
+            ? {
+              outcome: "errored",
+              memoryBody: "session cannot continue",
+              diagnostic: "session identity changed",
+              recovery: { continueable: false, reason: "session identity changed" },
+            }
+            : { outcome: "completed", memoryBody: "done" };
+        },
+      },
+      staging: { async persistTerminal(_batchId, result) { staged.push(result); } },
+    }),
+    SpawnRecoveryError,
+  );
+  assert.deepEqual(staged, []);
+});
+
+test("recoverable spawn cancellation does not stage provisional results", async () => {
+  const attempts = [];
+  const staged = [];
+  const controller = new AbortController();
+  await assert.rejects(
+    executeSpawnBatch({
+      batchId: "retry",
+      tasks,
+      signal: controller.signal,
+      recovery: {
+        async choose() {
+          controller.abort();
+          return { action: "retry" };
+        },
+      },
+      executor: {
+        async execute(task, context) {
+          attempts.push([task.summary, context.attempt, context.mode]);
+          return { outcome: "errored", memoryBody: "failed", diagnostic: "failed" };
+        },
+      },
+      staging: { async persistTerminal(_batchId, result) { staged.push(result); } },
+    }),
+    SpawnRecoveryCancelledError,
+  );
+  assert.deepEqual(attempts, [["first", 0, "initial"], ["second", 0, "initial"]]);
+  assert.deepEqual(staged, []);
 });

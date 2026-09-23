@@ -11,6 +11,9 @@ export interface SpawnChildContext {
   batchId: string;
   ordinal: number;
   signal: AbortSignal;
+  attempt: number;
+  mode: "initial" | "continue" | "retry";
+  guidance?: string;
 }
 
 export interface SpawnChildTerminal {
@@ -18,6 +21,11 @@ export interface SpawnChildTerminal {
   memoryBody: string;
   diagnostic?: string | null;
   executionRef?: string | null;
+  /** Host-local recovery capability; never enters the canonical receipt. */
+  recovery?: {
+    continueable: boolean;
+    reason?: string | null;
+  };
 }
 
 export interface SpawnExecutor {
@@ -28,12 +36,33 @@ export interface SpawnStagingStore {
   persistTerminal(batchId: string, result: SpawnResult): Promise<void>;
 }
 
+export type SpawnRecoveryAction = "continue" | "retry" | "abandon";
+
+export interface SpawnRecoveryFailure extends SpawnResult {
+  /** Whether reusing this child session is currently evidenced as safe. */
+  continueable: boolean;
+  continueReason?: string;
+}
+
+export interface SpawnRecoveryDecision {
+  action: SpawnRecoveryAction;
+  guidance?: string;
+}
+
+export interface SpawnRecoveryPolicy {
+  choose(
+    failures: readonly SpawnRecoveryFailure[],
+    signal: AbortSignal,
+  ): Promise<SpawnRecoveryDecision | undefined>;
+}
+
 export interface ExecuteSpawnBatchOptions {
   batchId: string;
   tasks: readonly SpawnTask[];
   executor: SpawnExecutor;
   staging: SpawnStagingStore;
   signal?: AbortSignal;
+  recovery?: SpawnRecoveryPolicy;
 }
 
 export class SpawnBatchExecutionError extends Error {
@@ -55,6 +84,16 @@ export class SpawnRecoveryError extends Error {
   }
 }
 
+export class SpawnRecoveryCancelledError extends Error {
+  readonly batchId: string;
+
+  constructor(batchId: string) {
+    super(`Spine spawn recovery was cancelled for batch ${batchId}`);
+    this.name = "SpawnRecoveryCancelledError";
+    this.batchId = batchId;
+  }
+}
+
 /**
  * Runs child work concurrently but returns only a complete task-ordered receipt.
  * The executor owns child-agent policy and must return explicit terminal memory;
@@ -73,6 +112,9 @@ export async function executeSpawnBatch(
   }
 
   try {
+    if (options.recovery !== undefined) {
+      return await executeRecoverableSpawnBatch(options, controller);
+    }
     let resultAggregateBytes = 0;
     const executions = options.tasks.map(async (task, ordinal) => {
       try {
@@ -80,6 +122,8 @@ export async function executeSpawnBatch(
           batchId: options.batchId,
           ordinal,
           signal: controller.signal,
+          attempt: 0,
+          mode: "initial",
         });
         const result = toSpawnResult(ordinal, terminal);
         resultAggregateBytes += spawnResultByteSize(result);
@@ -105,6 +149,111 @@ export async function executeSpawnBatch(
     return results;
   } finally {
     options.signal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
+async function executeRecoverableSpawnBatch(
+  options: ExecuteSpawnBatchOptions,
+  controller: AbortController,
+): Promise<SpawnResult[]> {
+  const results = new Map<number, SpawnResult>();
+  const recovery = new Map<number, SpawnChildTerminal["recovery"]>();
+  const attempts = new Map<number, number>();
+  let pending = options.tasks.map((_task, ordinal) => ordinal);
+  let guidance: string | undefined;
+  let mode: SpawnChildContext["mode"] = "initial";
+
+  while (true) {
+    if (controller.signal.aborted) {
+      throw new SpawnRecoveryCancelledError(options.batchId);
+    }
+    const settled = await Promise.allSettled(
+      pending.map(async (ordinal) => {
+        const task = options.tasks[ordinal]!;
+        const attempt = attempts.get(ordinal) ?? 0;
+        try {
+          const terminal = await options.executor.execute(task, {
+            batchId: options.batchId,
+            ordinal,
+            signal: controller.signal,
+            attempt,
+            mode,
+            ...(guidance === undefined ? {} : { guidance }),
+          });
+          const result = toSpawnResult(ordinal, terminal);
+          recovery.set(ordinal, terminal.recovery);
+          return result;
+        } catch (cause) {
+          controller.abort(cause);
+          throw new SpawnBatchExecutionError(options.batchId, ordinal, cause);
+        }
+      }),
+    );
+    const failed = settled.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failed !== undefined) throw failed.reason;
+    for (const result of settled as PromiseFulfilledResult<SpawnResult>[]) {
+      results.set(result.value.ordinal, result.value);
+    }
+
+    const ordered = options.tasks.map((_task, ordinal) => results.get(ordinal)!);
+    validateSpawnResults(options.tasks, ordered);
+    const failures: SpawnRecoveryFailure[] = ordered
+      .filter((result) => result.outcome !== "completed")
+      .map((result) => {
+        const capability = recovery.get(result.ordinal);
+        return {
+          ...result,
+          continueable: capability?.continueable ?? true,
+          ...(capability?.reason === undefined || capability.reason === null
+            ? {}
+            : { continueReason: capability.reason }),
+        };
+      });
+    if (options.signal?.aborted === true) {
+      throw new SpawnRecoveryCancelledError(options.batchId);
+    }
+    if (failures.length === 0) {
+      await persistSpawnResults(options, ordered);
+      return ordered;
+    }
+
+    const decision = await options.recovery!.choose(failures, controller.signal);
+    if (decision === undefined) throw new SpawnRecoveryCancelledError(options.batchId);
+    if (options.signal !== undefined && options.signal.aborted) {
+      throw new SpawnRecoveryCancelledError(options.batchId);
+    }
+    if (decision.action === "continue" && failures.some((failure) => !failure.continueable)) {
+      throw new SpawnRecoveryError(
+        `spawn Continue is unavailable for ordinal(s): ${failures
+          .filter((failure) => !failure.continueable)
+          .map((failure) => failure.ordinal)
+          .join(", ")}`,
+      );
+    }
+    if (decision.action === "abandon") {
+      await persistSpawnResults(options, ordered);
+      return ordered;
+    }
+
+    pending = failures.map((result) => result.ordinal);
+    guidance = decision.guidance?.trim() || undefined;
+    mode = decision.action === "continue" ? "continue" : "retry";
+    if (decision.action === "retry") {
+      for (const ordinal of pending) {
+        attempts.set(ordinal, (attempts.get(ordinal) ?? 0) + 1);
+      }
+    }
+  }
+}
+
+async function persistSpawnResults(
+  options: ExecuteSpawnBatchOptions,
+  results: readonly SpawnResult[],
+): Promise<void> {
+  for (const result of results) {
+    await options.staging.persistTerminal(options.batchId, result);
   }
 }
 

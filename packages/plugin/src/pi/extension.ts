@@ -22,13 +22,19 @@ import type { FinishSamplingResult } from "../controller.js";
 import { Type } from "typebox";
 
 import type { HostContextEnvelope } from "../host-adapter.js";
-import { executeSpawnBatch, type SpawnChildTerminal } from "../spawn.js";
+import {
+  executeSpawnBatch,
+  type SpawnChildTerminal,
+  type SpawnRecoveryPolicy,
+} from "../spawn.js";
 import { SpineToolInputError } from "../tools.js";
 import type { SpawnTask } from "@spinejit/spine-sdk";
 import {
   buildChildAssignment,
+  buildChildContinuation,
   childSessionPath,
   CHILD_RETURN_TOOL,
+  inspectChildSession,
   writeChildPrefixSession,
 } from "./child-session.js";
 import { createPiSpineAdapter, createPiSpawnStagingStore } from "./index.js";
@@ -44,13 +50,11 @@ import { materializePiContext, type PiAgentMessage } from "./messages.js";
 import { adaptSpineSystemPromptForPi, rewriteSpineToolNamesForPi } from "./prompt.js";
 import { resolvePiInvocation } from "./invocation.js";
 import {
-  displayTreeSignature,
-  formatPrettySpineTree,
-  formatThemedPrettySpineTree,
   linesComponent,
-  prettySpineTreeHasTasks,
 } from "./pretty-tree.js";
 import { buildPiReplayPlan, recoverPiSession } from "./recovery.js";
+import { SpineTreeDisplay } from "./tree-view.js";
+import { SPINE_TREE_VIEW_REQUEST } from "./tree-view-contract.js";
 import {
   applySpawnTerminal,
   createSpawnBatchView,
@@ -62,7 +66,6 @@ import {
 } from "./spawn-view.js";
 
 const CHILD_FLAG = "spine-child";
-const SPINE_TREE_WIDGET = "spine-tree";
 const EXTENSION_MODULE_PATH = fileURLToPath(import.meta.url);
 
 export interface PiExtensionRuntimeFactory {
@@ -83,6 +86,7 @@ export interface PiChildInvocationContext {
 export interface PiChildInvocation {
   readonly command: string;
   readonly args?: readonly string[];
+  /** Extension modules are passed in order; the project bridge may replace the canonical default. */
   readonly extensionPaths?: readonly string[];
 }
 
@@ -124,7 +128,7 @@ interface MutableSessionSlot {
   notified: boolean;
   compactionHandled: boolean;
   compactionAbortCleanup: (() => void) | null;
-  treeSignature: string | null;
+  treeDisplay: SpineTreeDisplay;
   samplingPrefix: unknown[] | null;
 }
 
@@ -162,11 +166,14 @@ function activatePiExtension(pi: ExtensionAPI, options: CreatePiExtensionOptions
     notified: false,
     compactionHandled: false,
     compactionAbortCleanup: null,
-    treeSignature: null,
+    treeDisplay: new SpineTreeDisplay(),
     samplingPrefix: null,
   };
   registerSpineTools(pi, slot, options.childInvocation);
-  registerSpineCommands(pi, slot);
+  pi.events.on(SPINE_TREE_VIEW_REQUEST, (request) => {
+    if (slot.current === null || slot.fault !== null) return;
+    slot.treeDisplay.offer(request, slot.generation, slot.current.latestContext.projection);
+  });
   registerLifecycleHandlers(pi, slot, runtimeFactory, options.onSessionReady, options.onSamplingCommit);
 }
 
@@ -182,6 +189,7 @@ function registerSpineTools(
         label: tool.label,
         description: tool.description,
         parameters: tool.parameters,
+        executionMode: "sequential",
         async execute(toolCallId, params, signal, onUpdate, ctx) {
           const session = await requireSession(slot);
           const tasks = decodeSpawnTasks(params as unknown as Record<string, unknown>);
@@ -200,15 +208,29 @@ function registerSpineTools(
             },
             async replaceContext() {},
           });
+          const recovery = spawnRecoveryPolicy(ctx, pi);
+          const sessionIdentities = new Map<number, string>();
           const results = await executeSpawnBatch({
             batchId: toolCallId,
             tasks,
             ...(signal === undefined ? {} : { signal }),
             staging,
+            ...(recovery === undefined
+              ? {}
+              : { recovery }),
             executor: {
               async execute(task, child) {
                 try {
-                  const terminal = await executePiChild(pi, ctx, slot, tasks, task, child, childInvocation);
+                  const terminal = await executePiChild(
+                    pi,
+                    ctx,
+                    slot,
+                    tasks,
+                    task,
+                    child,
+                    sessionIdentities,
+                    childInvocation,
+                  );
                   applySpawnTerminal(view, child.ordinal, {
                     ordinal: child.ordinal,
                     outcome: terminal.outcome,
@@ -278,6 +300,49 @@ function registerSpineTools(
   }
 }
 
+function spawnRecoveryPolicy(
+  ctx: ExtensionContext,
+  pi: ExtensionAPI,
+): SpawnRecoveryPolicy | undefined {
+  if (
+    !ctx.hasUI ||
+    pi.getFlag(CHILD_FLAG) ||
+    typeof ctx.ui.select !== "function"
+  ) {
+    return undefined;
+  }
+  return {
+    async choose(failures, signal) {
+      const ordinals = failures.map((failure) => failure.ordinal).join(", ");
+      const canContinue = failures.every((failure) => failure.continueable);
+      const choices = canContinue
+        ? ["Continue", "Retry", "Abandon"]
+        : ["Retry", "Abandon"];
+      const unavailable = failures
+        .filter((failure) => !failure.continueable)
+        .map((failure) => `${failure.ordinal}${failure.continueReason === undefined ? "" : ` (${failure.continueReason})`}`)
+        .join(", ");
+      const choice = await ctx.ui.select(
+        `Spine Spawn failed child ordinal(s): ${ordinals}${unavailable.length === 0 ? "" : `; Continue unavailable for: ${unavailable}`}`,
+        choices,
+        { signal },
+      );
+      if (choice === undefined) return undefined;
+      if (choice === "Abandon") return { action: "abandon" };
+      const guidance = await ctx.ui.input(
+        `${choice} guidance (optional)`,
+        "Leave empty to continue without guidance",
+        { signal },
+      );
+      if (guidance === undefined) return undefined;
+      return {
+        action: choice.toLowerCase() as "continue" | "retry",
+        ...(guidance.trim().length === 0 ? {} : { guidance: guidance.trim().slice(0, 4096) }),
+      };
+    },
+  };
+}
+
 function loadCanonicalSpineTools(): Array<{
   name: string;
   label: string;
@@ -324,18 +389,6 @@ function registerChildReturnTool(pi: ExtensionAPI): void {
   });
 }
 
-function registerSpineCommands(pi: ExtensionAPI, slot: MutableSessionSlot): void {
-  pi.registerCommand("spine-tree", {
-    description: "Show the current Spine tree",
-    handler: async (_args, ctx) => {
-      const session = await requireSession(slot);
-      const projection = session.latestContext.projection;
-      const lines = prettySpineTreeHasTasks(projection) ? formatPrettySpineTree(projection) : [];
-      ctx.ui.notify(lines.length === 0 ? "Spine tree is empty" : lines.join("\n"), "info");
-    },
-  });
-}
-
 function registerLifecycleHandlers(
   pi: ExtensionAPI,
   slot: MutableSessionSlot,
@@ -356,7 +409,6 @@ function registerLifecycleHandlers(
       slot.compactionHandled = false;
       slot.compactionAbortCleanup?.();
       slot.compactionAbortCleanup = null;
-      slot.treeSignature = null;
       slot.samplingPrefix = null;
       await beginSessionInitialization(slot, () => initializeSession(pi, ctx, runtimeFactory, onSessionReady));
       renderSpineTree(ctx, slot, await requireSession(slot));
@@ -369,7 +421,6 @@ function registerLifecycleHandlers(
       slot.compactionHandled = false;
       slot.compactionAbortCleanup?.();
       slot.compactionAbortCleanup = null;
-      slot.treeSignature = null;
       slot.samplingPrefix = null;
       await beginSessionInitialization(slot, () => initializeSession(pi, ctx, runtimeFactory, onSessionReady));
       renderSpineTree(ctx, slot, await requireSession(slot));
@@ -380,13 +431,10 @@ function registerLifecycleHandlers(
     slot.compactionHandled = false;
     slot.compactionAbortCleanup?.();
     slot.compactionAbortCleanup = null;
-    slot.treeSignature = null;
     slot.samplingPrefix = null;
     disposeCurrent(slot);
     slot.initialization = null;
-    if (ctx.mode === "tui") {
-      ctx.ui.setWidget(SPINE_TREE_WIDGET, undefined);
-    }
+    slot.treeDisplay.reset();
   });
   pi.on("message_end", async (event, ctx) => {
     await guardHook(slot, ctx, async () => {
@@ -678,32 +726,74 @@ async function executePiChild(
   slot: MutableSessionSlot,
   tasks: readonly SpawnTask[],
   task: SpawnTask,
-  child: { batchId: string; ordinal: number; signal: AbortSignal },
+  child: {
+    batchId: string;
+    ordinal: number;
+    signal: AbortSignal;
+    attempt: number;
+    mode: "initial" | "continue" | "retry";
+    guidance?: string;
+  },
+  sessionIdentities: Map<number, string>,
   childInvocation?: PiChildInvocationFactory,
 ): Promise<SpawnChildTerminal> {
   if (slot.samplingPrefix === null) {
+    if (process.env.SPINE_DEBUG === "1") console.error(JSON.stringify({ type: "spawn_child_missing_prefix", batchId: child.batchId, ordinal: child.ordinal }));
     throw new Error("Pi Spawn child prefix is missing; parent sampling did not start");
   }
   const parentSessionFile = ctx.sessionManager.getSessionFile();
   const destPath = childSessionPath({
     batchId: child.batchId,
     ordinal: child.ordinal,
+    attempt: child.attempt,
     ...(parentSessionFile === undefined ? {} : { parentSessionFile }),
   });
-  const sessionId = await writeChildPrefixSession({
-    cwd: ctx.cwd,
-    destPath,
-    entries: slot.samplingPrefix,
-    ...(parentSessionFile === undefined ? {} : { parentSession: parentSessionFile }),
-  });
+  let sessionId: string;
+  let prompt: string;
   const assignment = buildChildAssignment(task, tasks);
+  if (child.mode === "initial" || child.mode === "retry") {
+    sessionId = await writeChildPrefixSession({
+      cwd: ctx.cwd,
+      destPath,
+      entries: slot.samplingPrefix,
+      ...(parentSessionFile === undefined ? {} : { parentSession: parentSessionFile }),
+    });
+    sessionIdentities.set(child.ordinal, sessionId);
+    prompt = assignment;
+  } else {
+    try {
+      const expected = sessionIdentities.get(child.ordinal);
+      if (expected === undefined) {
+        throw new Error(`Pi Spawn child session identity is missing for ordinal ${child.ordinal}`);
+      }
+      const inspection = await inspectChildSession({
+        cwd: ctx.cwd,
+        destPath,
+        expectedId: expected,
+        assignment,
+      });
+      sessionId = inspection.id;
+      prompt = inspection.assignmentPresent
+        ? buildChildContinuation(child.guidance)
+        : buildChildContinuation(child.guidance, assignment);
+    } catch (cause) {
+      const diagnostic = clipSpawnDiagnostic(cause instanceof Error ? cause.message : String(cause));
+      return {
+        outcome: "errored",
+        memoryBody: diagnostic,
+        diagnostic,
+        executionRef: `${child.batchId}:${child.ordinal}:attempt-${child.attempt}:missing-session`,
+        recovery: { continueable: false, reason: diagnostic },
+      };
+    }
+  }
   const invocation = childInvocation === undefined
     ? { ...piInvocation(), extensionPaths: [EXTENSION_MODULE_PATH] }
     : await childInvocation({
       batchId: child.batchId,
       ordinal: child.ordinal,
-      attempt: 0,
-      mode: "initial",
+      attempt: child.attempt,
+      mode: child.mode,
       sessionId,
       sessionPath: destPath,
       assignment,
@@ -730,11 +820,11 @@ async function executePiChild(
       `--${CHILD_FLAG}=true`,
       ...(tools.length === 0 ? [] : ["--tools", tools.join(",")]),
       ...childRuntimeFlags(ctx),
-      assignment,
+      prompt,
     ],
     { cwd: ctx.cwd, signal: child.signal },
   );
-  const executionRef = `${child.batchId}:${child.ordinal}`;
+  const executionRef = `${child.batchId}:${child.ordinal}:attempt-${child.attempt}:${sessionId}`;
   const processDiagnostic = childProcessDiagnostic(result);
   let memory: string;
   try {
@@ -827,6 +917,7 @@ async function beginSessionInitialization(
 ): Promise<void> {
   const generation = slot.generation + 1;
   slot.generation = generation;
+  slot.treeDisplay.reset();
   disposeCurrent(slot);
   const pending = initialize();
   slot.initialization = pending;
@@ -858,6 +949,7 @@ async function guardHook(
 }
 
 function faultAndAbort(slot: MutableSessionSlot, ctx: ExtensionContext, cause: unknown): void {
+  if (process.env.SPINE_DEBUG === "1") console.error(JSON.stringify({ type: "canonical_fault", message: cause instanceof Error ? cause.message : String(cause), cause: cause instanceof Error && cause.cause instanceof Error ? cause.cause.message : undefined, stack: cause instanceof Error ? cause.stack : undefined }));
   slot.fault ??= cause;
   ctx.abort();
   if (!slot.notified && ctx.hasUI) {
@@ -898,21 +990,7 @@ function piInvocation(): { command: string; args: string[] } {
 }
 
 function renderSpineTree(ctx: ExtensionContext, slot: MutableSessionSlot, session: ActivePiSession): void {
-  if (ctx.mode !== "tui") return;
-  const projection = session.latestContext.projection;
-  if (!prettySpineTreeHasTasks(projection)) {
-    slot.treeSignature = null;
-    ctx.ui.setWidget(SPINE_TREE_WIDGET, undefined);
-    return;
-  }
-  const signature = displayTreeSignature(projection);
-  if (signature === slot.treeSignature) return;
-  slot.treeSignature = signature;
-  ctx.ui.setWidget(
-    SPINE_TREE_WIDGET,
-    (_tui, theme) => linesComponent(formatThemedPrettySpineTree(projection, theme)),
-    { placement: "aboveEditor" },
-  );
+  slot.treeDisplay.publish(ctx, slot.generation, session.latestContext.projection);
 }
 
 function spawnToolUpdate(view: SpawnBatchDetails) {

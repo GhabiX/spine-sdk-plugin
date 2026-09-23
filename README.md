@@ -184,9 +184,11 @@ reconnection stay outside the plugin.
 
 ## Pi extension
 
-`@spinejit/spine-plugin` declares its loadable entry in `pi.extensions`; the
-same entry is available explicitly as `@spinejit/spine-plugin/pi/extension`.
-It registers the four canonical tools and `/spine-tree`, and
+`@spinejit/spine-plugin` declares its local Pi load entry in `pi.extensions`
+as `./src/pi/extension.ts`, so Pi loads it through jiti and the host virtual
+module. The package export `@spinejit/spine-plugin/pi/extension` remains the
+compiled `dist` module for tests and direct imports.
+It registers the four canonical tools, has no browsing slash commands, and
 uses `@spinejit/spine-sdk/node` for the packaged WASM runtime.
 Before each agent run, the extension's `before_agent_start` hook extends Pi's
 assembled system prompt through the runtime's configured `SpineConfig` and
@@ -196,10 +198,22 @@ obligation rather than the current one belongs at its owning level. Canonical
 instruction text otherwise remains in `spine-core`; the adapter does not copy
 the rest of the prompt or rely on tool descriptions as a substitute for it.
 In interactive Pi TUI mode it renders a folded SpineCodex-style pretty tree as an
-`aboveEditor` widget keyed by `spine-tree`, refreshed only when the display
-signature changes. `/spine-tree` prints that same pretty tree. `spine_spawn`
-streams per-child status on the tool row. JSON, print, and RPC modes keep the
-command/notification behavior.
+`aboveEditor` widget keyed by `spine-tree`, with one blank row below the tree
+to separate it from the input border, refreshed only when the display
+signature changes. `spine_spawn` streams per-child status on the tool row.
+The optional [`@spinejit/spinetree-navigation`](packages/spinetree-navigation/README.md)
+Pi extension adds `/spine-tree [node-id]`: navigate this same bottom tree and
+read node memory above it. It works in regular TUI mode, without
+modifying Pi or moving the execution cursor. The core alone retains the default
+tree; the old print-only `/spine-tree` command is intentionally no longer registered.
+
+The core is the sole widget owner. Navigation requests a copied read-only
+snapshot through the versioned `spinejit:tree-view:v1` Pi event and temporarily
+contributes a bounded view via `@spinejit/spine-plugin/pi/tree-view`. Discovery
+occurs when the command runs, so either extension load order works. View failures
+stay inside the UI error boundary. Background publications update the default
+tree while the browser holds its snapshot; releasing the view displays the latest
+tree. This is an in-process extension contract, not a security sandbox.
 
 The context hook is also dirty-tracked. Recovery starts with the context that
 was just published; repeated Pi context hooks therefore return the installed
@@ -250,6 +264,24 @@ fully committed Spawn and verifies its durable per-child staging. If Pi crashes
 after staging child terminal memory but before persisting the parent tool result
 and turn commit, the extension fails closed on restart: Pi currently does not
 expose a recovery-time native tool-result finalization API.
+
+While the parent Pi process remains live, a root TUI/RPC Spawn with failed child
+terminals enters a batch-level recovery gate. The user can choose `Continue` to
+reuse the same child session history, `Retry` to create a new attempt session
+from the frozen parent prefix and assignment, or `Abandon` to return the mixed
+receipt. Successful ordinals are never rerun, and terminal staging is deferred
+until the batch reaches a final decision so each ordinal is staged once. The
+gate is serialized by Pi's `executionMode: "sequential"`; `Continue` first
+validates the existing session header, identity, and active branch through Pi's
+session loader and Spine replay preflight. If the session is valid but the
+assignment is absent from the branch, the continuation carries the frozen
+assignment once as a context fallback; an invalid session or an uncommitted
+nested Spawn staging entry removes `Continue` from the choices and leaves
+`Retry`/`Abandon`. Child launch/API errors and prefix, validation, or staging
+invariant failures remain host-fatal rather than being hidden as retries.
+print/JSON and nested child modes keep the headless one-shot behavior. This
+live-parent recovery does not recover an in-flight Spawn after the parent
+process has restarted.
 
 ## DeepSeek Harness extension
 

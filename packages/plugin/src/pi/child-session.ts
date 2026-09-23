@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { CURRENT_SESSION_VERSION } from "@earendil-works/pi-coding-agent";
+import {
+  CURRENT_SESSION_VERSION,
+  SessionManager,
+  sessionEntryToContextMessages,
+  type SessionEntry,
+} from "@earendil-works/pi-coding-agent";
+
+import { buildPiReplayPlan } from "./recovery.js";
+import type { PiAgentMessage } from "./messages.js";
 
 export const CHILD_RETURN_TOOL = "spine_child_return";
 
@@ -48,11 +56,15 @@ export function childSessionPath(options: {
   batchId: string;
   ordinal: number;
   parentSessionFile?: string;
+  attempt?: number;
 }): string {
   const root = options.parentSessionFile === undefined
     ? join(tmpdir(), "pi-spine-spawn")
     : join(dirname(options.parentSessionFile), "spine-spawn");
-  return join(root, safeSegment(options.batchId), `${options.ordinal}.jsonl`);
+  const suffix = options.attempt === undefined || options.attempt === 0
+    ? `${options.ordinal}.jsonl`
+    : `${options.ordinal}.attempt-${options.attempt}.jsonl`;
+  return join(root, safeSegment(options.batchId), suffix);
 }
 
 export async function writeChildPrefixSession(options: {
@@ -79,6 +91,88 @@ export async function writeChildPrefixSession(options: {
   }
   await writeFile(options.destPath, `${lines.join("\n")}\n`);
   return id;
+}
+
+export async function readChildSessionIdentity(destPath: string): Promise<string> {
+  const firstLine = (await readFile(destPath, "utf8")).split("\n", 1)[0]?.trim();
+  if (firstLine === undefined || firstLine.length === 0) {
+    throw new Error(`Pi Spawn child session is empty: ${destPath}`);
+  }
+  let header: unknown;
+  try {
+    header = JSON.parse(firstLine);
+  } catch (cause) {
+    throw new Error(`Pi Spawn child session header is invalid: ${destPath}`, { cause });
+  }
+  const record = header !== null && typeof header === "object"
+    ? header as Record<string, unknown>
+    : null;
+  if (
+    record === null ||
+    record.type !== "session" ||
+    typeof record.id !== "string" ||
+    record.id.trim().length === 0
+  ) {
+    throw new Error(`Pi Spawn child session header is missing identity: ${destPath}`);
+  }
+  return record.id;
+}
+
+export async function inspectChildSession(options: {
+  cwd: string;
+  destPath: string;
+  expectedId: string;
+  assignment: string;
+}): Promise<{ id: string; assignmentPresent: boolean }> {
+  const id = await readChildSessionIdentity(options.destPath);
+  if (id !== options.expectedId) {
+    throw new Error(`Pi Spawn child session identity changed: ${options.destPath}`);
+  }
+  const session = SessionManager.open(options.destPath, undefined, options.cwd);
+  const header = session.getHeader();
+  if (header === null || header.id !== options.expectedId) {
+    throw new Error(`Pi Spawn child session header is inconsistent: ${options.destPath}`);
+  }
+  const branch = session.getBranch();
+  try {
+    buildPiReplayPlan({
+      currentSessionId: session.getSessionId(),
+      branch,
+      messagesForEntry: (entry) =>
+        sessionEntryToContextMessages(entry as SessionEntry) as PiAgentMessage[],
+    });
+  } catch (cause) {
+    throw new Error(
+      `Pi Spawn child session cannot continue after Spine recovery validation: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      { cause },
+    );
+  }
+  const assignmentPresent = branch.some((entry) =>
+    sessionEntryContainsText(entry, options.assignment),
+  );
+  return { id, assignmentPresent };
+}
+
+export function buildChildContinuation(guidance?: string, fallbackAssignment?: string): string {
+  const fallback = fallbackAssignment === undefined
+    ? ""
+    : `\n\nThe original assignment was not present in the active session context. Use the following only to restore task context; inspect the existing state first and do not repeat work that is already complete.\n\nAssignment context:\n${fallbackAssignment}`;
+  const note = guidance === undefined ? "" : `\n\nUser guidance:\n${guidance}`;
+  return `The previous execution attempt did not complete the assigned work. Continue the same active branch from the existing session history. Inspect the current state, finish the assignment, and call ${CHILD_RETURN_TOOL} exactly once with the complete terminal memory. Do not start a new branch or repeat work that is already complete.${fallback}${note}`;
+}
+
+function sessionEntryContainsText(entry: SessionEntry, text: string): boolean {
+  if (entry.type !== "message" || entry.message.role !== "user") return false;
+  const content = entry.message.content;
+  if (typeof content === "string") return content.includes(text);
+  if (!Array.isArray(content)) return false;
+  return content.some((item) =>
+    typeof item === "object" && item !== null &&
+    "type" in item && item.type === "text" &&
+    "text" in item && typeof item.text === "string" && item.text.includes(text),
+  );
 }
 
 function safeSegment(value: string): string {

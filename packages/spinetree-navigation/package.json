@@ -1,0 +1,27 @@
+{
+  "name": "@spinejit/spinetree-navigation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "pi": { "extensions": ["./src/extension.ts"] },
+  "exports": { ".": { "types": "./dist/extension.d.ts", "import": "./dist/extension.js" } },
+  "files": ["dist"],
+  "engines": { "node": ">=22.19.0" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@spinejit/spine-plugin": "0.1.0",
+    "@spinejit/spine-sdk": "0.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-tui": "0.85.1"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-tui": "0.85.1"
+  }
+}

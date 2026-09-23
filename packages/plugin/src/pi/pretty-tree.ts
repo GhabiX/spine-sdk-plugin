@@ -1,6 +1,22 @@
 import type { NodeSnapshot, SpineProjection } from "@spinejit/spine-sdk";
 
 import { clampLines } from "./tui-width.js";
+import {
+  spineTreeBranch,
+  spineTreeChildPrefix,
+  spineTreeBrand,
+  spineTreeLabel,
+  spineTreeMarker,
+  spineTreeMarkerText,
+} from "./tree-style.js";
+export {
+  spineTreeBranch,
+  spineTreeChildPrefix,
+  spineTreeBrand,
+  spineTreeLabel,
+  spineTreeMarker,
+  spineTreeMarkerText,
+} from "./tree-style.js";
 
 const PRETTY_MAX_VISIBLE_SIBLINGS = 3;
 const PRETTY_ACTIVE_PARENT_DEPTH = 3;
@@ -23,11 +39,8 @@ export interface SpineTheme {
   bold(text: string): string;
 }
 
-const SPINE_BRAND = "\x1b[92m";
-const SPINE_BRAND_RESET = "\x1b[39m";
-
 export function spineBrand(text: string, theme: SpineTheme): string {
-  return `${SPINE_BRAND}${theme.bold(text)}${SPINE_BRAND_RESET}`;
+  return spineTreeBrand(text, theme);
 }
 
 type SiblingItem = { type: "history"; count: number } | { type: "node"; node: DisplayNode };
@@ -323,24 +336,11 @@ function mergeHistory(items: SiblingItem[]): SiblingItem[] {
 }
 
 function prettyMarker(node: DisplayNode, active: boolean, hasChildren: boolean): string {
-  if (active) return "◉";
-  if (node.spawnOutcome === "completed") return "✓";
-  if (node.spawnOutcome === "errored") return "×";
-  if (node.spawnOutcome === "aborted") return "!";
-  if (node.status === "Live") return "◉";
-  if (node.status === "Closed") return "✓";
-  if (node.status === "Compacted") return "◌";
-  if (node.status === "Opened" && hasChildren) return "▾";
-  return "◌";
+  return spineTreeMarker(node, active, hasChildren);
 }
 
 function prettyLabel(node: DisplayNode, active: boolean): string {
-  const summary = trimmedSummary(node);
-  if (summary !== null) return summary;
-  if (active || node.status === "Live") return "Current task";
-  if (node.status === "Opened") return "Task";
-  if (node.status === "Closed") return "Completed task";
-  return "Previous task";
+  return spineTreeLabel(node, active);
 }
 
 function trimmedSummary(node: DisplayNode): string | null {
@@ -349,11 +349,11 @@ function trimmedSummary(node: DisplayNode): string | null {
 }
 
 function prettyBranch(isLast: boolean): string {
-  return isLast ? "└ " : "├ ";
+  return spineTreeBranch(isLast);
 }
 
 function prettyChildPrefix(isLast: boolean): string {
-  return isLast ? "  " : "│ ";
+  return spineTreeChildPrefix(isLast);
 }
 
 function historyNoun(count: number): string {
@@ -390,15 +390,5 @@ function themePrettyLine(line: PrettyLine, theme: SpineTheme): string {
 }
 
 function themeMarker(marker: string, theme: SpineTheme): string {
-  switch (marker) {
-    case "◉":
-    case "✓":
-      return spineBrand(marker, theme);
-    case "×":
-      return theme.fg("error", theme.bold(marker));
-    case "!":
-      return theme.fg("warning", theme.bold(marker));
-    default:
-      return theme.fg("dim", marker);
-  }
+  return spineTreeMarkerText(marker, theme);
 }
