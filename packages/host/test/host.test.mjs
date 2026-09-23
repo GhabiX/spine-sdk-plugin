@@ -209,3 +209,164 @@ test("resets activation state after a missing dependency failure", async () => {
   });
   await host.activateAll();
 });
+
+test("routes a typed effect through its owner and post-commit sink", async () => {
+  const sinkCalls = [];
+  const host = new SpinePluginHost();
+  host.register({
+    manifest: canonicalManifest,
+    activate(context) {
+      context.effects.registerCommitter("spine.canonical", (effect) => ({
+        receipt: {
+          schema: "spine-tree-receipt/v1",
+          receiptId: "receipt-1",
+          operationId: effect.operationId,
+          effectId: effect.effectId,
+          targetOwner: effect.targetOwner,
+          status: "committed",
+          commitId: "commit-1",
+          binding: { bindingId: effect.actor.bindingId, epoch: effect.actor.epoch },
+        },
+        record: { kind: "canonical-record", operationId: effect.operationId },
+        projection: { visible: true },
+      }));
+      context.effects.registerPostCommitSink({
+        id: "project-import",
+        accepts: ["spine.canonical"],
+        apply(record, deliveryId) {
+          sinkCalls.push({ record, deliveryId });
+        },
+      });
+    },
+  });
+  await host.activateAll();
+
+  const receipt = await host.submitEffect({
+    schema: "spine-tree-effect/v1",
+    effectId: "effect-1",
+    operationId: "operation-1",
+    effectType: "spine.scope.commit",
+    targetOwner: "spine.canonical",
+    actor: { kind: "agent", agentId: "agent-1", bindingId: "binding-1", epoch: 4 },
+    payload: { action: "close" },
+  });
+
+  assert.equal(receipt.receiptId, "receipt-1");
+  assert.deepEqual(sinkCalls.map(({ deliveryId }) => deliveryId), [
+    "project-import:spine.canonical:operation-1",
+  ]);
+  assert.deepEqual(sinkCalls[0].record, {
+    schema: "spine-tree-post-commit/v1",
+    effectType: "spine.scope.commit",
+    receipt,
+    record: { kind: "canonical-record", operationId: "operation-1" },
+    projection: { visible: true },
+    binding: { bindingId: "binding-1", epoch: 4 },
+  });
+});
+
+test("does not dispatch post-commit sinks for rejected owner results", async () => {
+  let sinkCalls = 0;
+  const host = new SpinePluginHost();
+  host.register({
+    manifest: canonicalManifest,
+    activate(context) {
+      context.effects.registerCommitter("spine.canonical", (effect) => ({
+        receipt: {
+          schema: "spine-tree-receipt/v1",
+          receiptId: "receipt-rejected",
+          operationId: effect.operationId,
+          effectId: effect.effectId,
+          targetOwner: effect.targetOwner,
+          status: "rejected",
+          error: { code: "invalid", retryable: false, message: "invalid" },
+        },
+      }));
+      context.effects.registerPostCommitSink({
+        id: "must-not-run",
+        accepts: ["spine.canonical"],
+        apply() {
+          sinkCalls += 1;
+        },
+      });
+    },
+  });
+  await host.activateAll();
+
+  const receipt = await host.submitEffect({
+    schema: "spine-tree-effect/v1",
+    effectId: "effect-rejected",
+    operationId: "operation-rejected",
+    effectType: "spine.scope.commit",
+    targetOwner: "spine.canonical",
+    actor: { kind: "system", actorId: "test" },
+    payload: {},
+  });
+
+  assert.equal(receipt.status, "rejected");
+  assert.equal(sinkCalls, 0);
+});
+
+test("does not let a plugin register a committer it does not own", async () => {
+  const host = new SpinePluginHost();
+  host.register({
+    manifest: {
+      schema: "spine-host/v1",
+      id: "ordinary",
+      version: "0.1.0",
+    },
+    activate(context) {
+      assert.throws(
+        () => context.effects.registerCommitter("spine.canonical", () => {
+          throw new Error("must not run");
+        }),
+        (error) => error instanceof SpinePluginHostError && error.code === "effect-owner",
+      );
+    },
+  });
+  await host.activateAll();
+});
+
+test("preserves the committed receipt when a post-commit sink fails", async () => {
+  const host = new SpinePluginHost();
+  host.register({
+    manifest: canonicalManifest,
+    activate(context) {
+      context.effects.registerCommitter("spine.canonical", (effect) => ({
+        receipt: {
+          schema: "spine-tree-receipt/v1",
+          receiptId: "receipt-2",
+          operationId: effect.operationId,
+          effectId: effect.effectId,
+          targetOwner: effect.targetOwner,
+          status: "committed",
+        },
+        record: { committed: true },
+      }));
+      context.effects.registerPostCommitSink({
+        id: "failing-sink",
+        accepts: ["spine.scope.commit"],
+        apply() {
+          throw new Error("target unavailable");
+        },
+      });
+    },
+  });
+  await host.activateAll();
+
+  await assert.rejects(
+    host.submitEffect({
+      schema: "spine-tree-effect/v1",
+      effectId: "effect-2",
+      operationId: "operation-2",
+      effectType: "spine.scope.commit",
+      targetOwner: "spine.canonical",
+      actor: { kind: "system", actorId: "test" },
+      payload: {},
+    }),
+    (error) =>
+      error instanceof SpinePluginHostError &&
+      error.code === "post-commit-sink-failed" &&
+      error.receipt?.receiptId === "receipt-2",
+  );
+});
