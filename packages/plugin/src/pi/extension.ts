@@ -97,7 +97,14 @@ export type PiChildInvocationFactory = (
 export interface CreatePiExtensionOptions {
   runtimeFactory?: PiExtensionRuntimeFactory;
   childInvocation?: PiChildInvocationFactory;
-  onSessionReady?: (info: { sessionId: string; thread: string; runtime: NodeSpineRuntime; entries: readonly SessionEntry[] }) => Promise<void> | void;
+  onSessionReady?: (info: {
+    sessionId: string;
+    thread: string;
+    epoch: number;
+    scopeCursor: readonly number[];
+    runtime: NodeSpineRuntime;
+    entries: readonly SessionEntry[];
+  }) => Promise<void> | void;
   onSamplingCommit?: (info: { sessionId: string; commit: FinishSamplingResult; entries: readonly SessionEntry[] }) => Promise<void> | void;
 }
 
@@ -688,15 +695,23 @@ async function initializeSession(
     if (runtime === null || latestContext === null) {
       throw new Error("Pi Spine recovery did not install runtime context");
     }
+    const initialContext = latestContext as HostContextEnvelope<PiAgentMessage>;
     const active = {
       lifecycle: new PiSamplingLifecycle(recovered.adapter, recovered.bindings, recovered.source, {
         contextReady: true,
       }),
       runtime,
-      latestContext,
+      latestContext: initialContext,
     };
     if (onSessionReady && runtimeThread !== null) {
-      await onSessionReady({ sessionId: ctx.sessionManager.getSessionId(), thread: runtimeThread, runtime, entries: ctx.sessionManager.getBranch() });
+      await onSessionReady({
+        sessionId: ctx.sessionManager.getSessionId(),
+        thread: runtimeThread,
+        epoch: recovered.source.epoch,
+        scopeCursor: [...initialContext.projection.cursor],
+        runtime,
+        entries: ctx.sessionManager.getBranch(),
+      });
     }
     return active;
   } catch (cause) {

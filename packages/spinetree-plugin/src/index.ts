@@ -86,6 +86,20 @@ export interface SpineTreeAgentBinding {
   readonly status: "running" | "paused" | "ended";
 }
 
+/** The non-optional execution lease required by an ordinary Agent launcher. */
+export interface SpineTreeWorkingBinding extends SpineTreeAgentBinding {
+  readonly bindingId: string;
+  readonly leaseId: string;
+  readonly operationId: string;
+  readonly epoch: number;
+  readonly scopeCursor: readonly number[];
+}
+
+export interface SpineTreeWorkingUpdate {
+  readonly epoch: number;
+  readonly scopeCursor: readonly number[];
+}
+
 export type SpineTreeAgentStatus = SpineTreeAgentBinding["status"];
 
 export interface SpineTreeAgentRegistry {
@@ -105,7 +119,16 @@ export interface SpineTreeExclusiveAgentRegistry {
   registerExclusive(binding: SpineTreeAgentBinding): void | Promise<void>;
 }
 
-export class MemoryAgentRegistry implements SpineTreeAgentLifecycleRegistry, SpineTreeAgentRegistryReader, SpineTreeExclusiveAgentRegistry {
+export interface SpineTreeWorkingAgentRegistry extends SpineTreeAgentLifecycleRegistry, SpineTreeAgentRegistryReader {
+  registerWorkingExclusive(binding: SpineTreeWorkingBinding): void | Promise<void>;
+  updateWorking(
+    agentId: string,
+    leaseId: string,
+    update: SpineTreeWorkingUpdate,
+  ): SpineTreeWorkingBinding | Promise<SpineTreeWorkingBinding>;
+}
+
+export class MemoryAgentRegistry implements SpineTreeWorkingAgentRegistry, SpineTreeExclusiveAgentRegistry {
   readonly #bindings = new Map<string, SpineTreeAgentBinding>();
 
   register(binding: SpineTreeAgentBinding): void {
@@ -145,10 +168,25 @@ export class MemoryAgentRegistry implements SpineTreeAgentLifecycleRegistry, Spi
     }
     this.#bindings.set(binding.agentId, clone(binding));
   }
+
+  registerWorkingExclusive(binding: SpineTreeWorkingBinding): void {
+    validateWorkingBinding(binding);
+    this.registerExclusive(binding);
+  }
+
+  updateWorking(agentId: string, leaseId: string, update: SpineTreeWorkingUpdate): SpineTreeWorkingBinding {
+    const binding = this.#bindings.get(agentId);
+    if (binding === undefined) throw new SpineTreeRegistryError("unknown-agent", `Unknown Agent ${agentId}`);
+    assertWorkingLease(binding, leaseId);
+    validateWorkingUpdate(update, binding.epoch);
+    const next = { ...binding, epoch: update.epoch, scopeCursor: [...update.scopeCursor] } as SpineTreeWorkingBinding;
+    this.#bindings.set(agentId, next);
+    return clone(next);
+  }
 }
 
 /** A registry persisted in the same immutable snapshot/HEAD as the tree. */
-export class GitSpineTreeAgentRegistry implements SpineTreeAgentLifecycleRegistry, SpineTreeAgentRegistryReader, SpineTreeExclusiveAgentRegistry {
+export class GitSpineTreeAgentRegistry implements SpineTreeWorkingAgentRegistry, SpineTreeExclusiveAgentRegistry {
   readonly store: SpineTreeSnapshotCommitStore;
   readonly #maxCasRetries: number;
 
@@ -226,10 +264,33 @@ export class GitSpineTreeAgentRegistry implements SpineTreeAgentLifecycleRegistr
       },
     );
   }
+
+  async registerWorkingExclusive(binding: SpineTreeWorkingBinding): Promise<void> {
+    validateWorkingBinding(binding);
+    await this.registerExclusive(binding);
+  }
+
+  async updateWorking(agentId: string, leaseId: string, update: SpineTreeWorkingUpdate): Promise<SpineTreeWorkingBinding> {
+    return mutateSnapshotWithRetry(
+      this.store,
+      this.#maxCasRetries,
+      "spinetree: registry working lease update",
+      snapshot => {
+        const registry = { ...(snapshot.registry ?? {}) };
+        const binding = registry[agentId];
+        if (binding === undefined) throw new SpineTreeRegistryError("unknown-agent", `Unknown Agent ${agentId}`);
+        assertWorkingLease(binding, leaseId);
+        validateWorkingUpdate(update, binding.epoch);
+        const next = { ...binding, epoch: update.epoch, scopeCursor: [...update.scopeCursor] } as SpineTreeWorkingBinding;
+        registry[agentId] = next;
+        return { snapshot: { ...snapshot, registry }, value: clone(next) };
+      },
+    );
+  }
 }
 
 export class SpineTreeRegistryError extends Error {
-  readonly code: "invalid-binding" | "duplicate-agent" | "branch-occupied" | "unknown-agent" | "invalid-transition";
+  readonly code: "invalid-binding" | "invalid-working-binding" | "stale-lease" | "duplicate-agent" | "branch-occupied" | "unknown-agent" | "invalid-transition";
 
   constructor(code: SpineTreeRegistryError["code"], message: string) {
     super(message);
@@ -1256,6 +1317,50 @@ function validateBinding(binding: SpineTreeAgentBinding): void {
   }
   if (binding.scope !== undefined && (typeof binding.scope !== "string" || binding.scope.length === 0)) {
     throw new SpineTreeRegistryError("invalid-binding", "Agent binding scope must be a non-empty string");
+  }
+}
+
+function validateWorkingBinding(binding: SpineTreeWorkingBinding): void {
+  validateBinding(binding);
+  if (
+    typeof binding.bindingId !== "string" || binding.bindingId.length === 0 ||
+    typeof binding.leaseId !== "string" || binding.leaseId.length === 0 ||
+    typeof binding.operationId !== "string" || binding.operationId.length === 0 ||
+    !Number.isSafeInteger(binding.epoch) || binding.epoch < 0 ||
+    !Array.isArray(binding.scopeCursor) || binding.scopeCursor.some(value => !Number.isSafeInteger(value) || value < 0)
+  ) {
+    throw new SpineTreeRegistryError(
+      "invalid-working-binding",
+      "WorkingBinding requires bindingId, leaseId, operationId, non-negative epoch and scopeCursor",
+    );
+  }
+}
+
+function validateWorkingUpdate(update: SpineTreeWorkingUpdate, currentEpoch: number): void {
+  if (
+    update === null || typeof update !== "object" ||
+    !Number.isSafeInteger(update.epoch) || update.epoch < currentEpoch ||
+    !Array.isArray(update.scopeCursor) || update.scopeCursor.some(value => !Number.isSafeInteger(value) || value < 0)
+  ) {
+    throw new SpineTreeRegistryError(
+      "invalid-working-binding",
+      "WorkingBinding update must preserve epoch order and provide a valid scopeCursor",
+    );
+  }
+}
+
+function isWorkingBinding(binding: SpineTreeAgentBinding): binding is SpineTreeWorkingBinding {
+  const candidate = binding as Partial<SpineTreeWorkingBinding>;
+  return typeof candidate.bindingId === "string" && candidate.bindingId.length > 0 &&
+    typeof candidate.leaseId === "string" && candidate.leaseId.length > 0 &&
+    typeof candidate.operationId === "string" && candidate.operationId.length > 0 &&
+    typeof candidate.epoch === "number" && Number.isSafeInteger(candidate.epoch) && candidate.epoch >= 0 &&
+    Array.isArray(candidate.scopeCursor);
+}
+
+function assertWorkingLease(binding: SpineTreeAgentBinding, leaseId: string): asserts binding is SpineTreeWorkingBinding {
+  if (binding.status !== "running" || !isWorkingBinding(binding) || binding.leaseId !== leaseId) {
+    throw new SpineTreeRegistryError("stale-lease", `Agent ${binding.agentId} does not hold the active WorkingBinding lease`);
   }
 }
 

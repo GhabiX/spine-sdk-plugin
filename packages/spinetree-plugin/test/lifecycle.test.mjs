@@ -61,6 +61,33 @@ test("MemoryAgentRegistry enforces the explicit status transition matrix", () =>
   );
 });
 
+test("WorkingBinding carries a lease and cursor, and stale leases fail closed", () => {
+  const registry = new MemoryAgentRegistry();
+  const working = {
+    ...binding,
+    bindingId: "binding-1",
+    leaseId: "lease-1",
+    operationId: "operation-1",
+    epoch: 0,
+    scopeCursor: [0],
+  };
+  registry.registerWorkingExclusive(working);
+  assert.deepEqual(registry.updateWorking("agent-1", "lease-1", { epoch: 1, scopeCursor: [0, 1] }), {
+    ...working,
+    epoch: 1,
+    scopeCursor: [0, 1],
+  });
+  assert.throws(
+    () => registry.updateWorking("agent-1", "stale-lease", { epoch: 2, scopeCursor: [0, 1, 0] }),
+    error => error instanceof SpineTreeRegistryError && error.code === "stale-lease",
+  );
+  registry.transition("agent-1", "ended");
+  assert.throws(
+    () => registry.updateWorking("agent-1", "lease-1", { epoch: 2, scopeCursor: [0, 1, 0] }),
+    error => error instanceof SpineTreeRegistryError && error.code === "stale-lease",
+  );
+});
+
 test("GitAgentRegistry persists status transitions and preserves binding identity", async () => {
   const root = await mkdtemp(join(tmpdir(), "spinetree-lifecycle-git-"));
   const store = GitSpineTreeStore.initialize(root, snapshot);

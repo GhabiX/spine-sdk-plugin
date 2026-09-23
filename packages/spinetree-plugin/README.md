@@ -2,7 +2,11 @@
 
 `spinetree_read({ branch })` captures one HEAD and reads all result fields from
 that immutable snapshot. In `spinetree.read.result/v2`, `binding` is the branch's
-non-ended registry entry: `{ agentId, sessionId, branch, scope?, status }`.
+non-ended registry entry. Ordinary executable Agents use a durable
+`WorkingBinding`: `{ agentId, sessionId, branch, scope, bindingId, leaseId,
+operationId, epoch, scopeCursor, status }`. Legacy registry entries may still be
+read by contract-level tools, but the Agent launcher rejects them for executable
+sessions because they do not carry a valid WorkingBinding lease.
 Both running and paused Agents are discoverable; `binding` is null when none exists.
 Multiple active entries return `SpineTreeReadError` with code `ambiguous-binding`
 so callers do not route a message to an arbitrarily selected Agent.
