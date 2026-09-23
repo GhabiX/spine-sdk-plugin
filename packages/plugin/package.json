@@ -5,7 +5,7 @@
   "type": "module",
   "pi": {
     "extensions": [
-      "./dist/pi/extension.js"
+      "./src/pi/extension.ts"
     ]
   },
   "exports": {
