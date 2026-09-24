@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { PiSessionAdapter, PluginManifest, PluginTool, SpinePlugin, SpinePluginContext } from "@spinejit/spine-host";
+import { spineTreeManifestFor, spineTreeToolsFor } from "./loadable.js";
 import { toolContracts } from "./tool-contracts.js";
+export * from "./loadable.js";
 import type { SpineTreeScopeBinding, SpineTreeScopeWatermark } from "./scopes.js";
 export * from "./scopes.js";
 
@@ -875,6 +877,8 @@ export interface SpineTreePluginOptions {
   readonly registry?: SpineTreeAgentRegistry;
   readonly mailbox?: SpineTreeMailbox;
   readonly rejuvenator?: SpineTreeRejuvenator;
+  /** Omit to keep the historical project and collaboration tools. An empty list loads nothing. */
+  readonly load?: readonly string[];
 }
 
 export interface SpineTreeSendInput {
@@ -1016,6 +1020,9 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
   if (options.store !== undefined && options.root !== undefined) {
     throw new TypeError("SpineTree plugin accepts either store or root, not both");
   }
+  const selectedTools = (options.load === undefined
+    ? ["read", "change", "send", "observe", "rejuvenate"]
+    : spineTreeToolsFor(options.load)) as Array<keyof typeof toolContracts>;
   const store = options.store ?? options.root;
   const changeStore = options.store !== undefined && isChangeStore(options.store) ? options.store : undefined;
   const sendReady = options.registry !== undefined && options.mailbox !== undefined;
@@ -1023,9 +1030,9 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
   const rejuvenateReady = store !== undefined && options.registry !== undefined &&
     isRegistryReader(options.registry) && isExclusiveRegistry(options.registry) && options.rejuvenator !== undefined;
   return {
-    manifest: SPINETREE_PLUGIN_MANIFEST,
+    manifest: options.load === undefined ? SPINETREE_PLUGIN_MANIFEST : spineTreeManifestFor(options.load),
     activate(context) {
-      for (const operation of ["read", "change", "send", "observe", "rejuvenate"] as const) {
+      for (const operation of selectedTools) {
         context.tools.register(
           operation,
           operation === "read" && store !== undefined
@@ -1041,11 +1048,14 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
             : contractTool(context, operation),
         );
       }
-      context.commands.register("status", {
-        description: "Inspect the SpineTree plugin contract status",
-        execute: async () => ({ status: "contract-only" }),
-      });
+      if (selectedTools.length > 0) {
+        context.commands.register("status", {
+          description: "Inspect the SpineTree plugin contract status",
+          execute: async () => ({ status: "contract-only" }),
+        });
+      }
     },
+    dispose() {},
   };
 }
 

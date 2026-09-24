@@ -146,3 +146,13 @@ rollback or recovery worker. A live mapped scope disappearing from a projection
 or across an epoch is explicitly unsupported; this slice does not infer a close
 or implement compaction/fork migration. Session, lease and dispatcher ownership
 remain with the caller.
+
+## Loadable boundaries
+
+ProjectTree, collaboration, the Pi session adapter, and navigation are explicit
+loadable units. They keep one `spinetree` tool namespace because the host rejects
+a second owner of that namespace. Omitting `load` preserves the historical
+project and collaboration tools. `load: []` claims no namespace and registers no
+tools. Collaboration cannot be selected without ProjectTree, and the Pi adapter
+cannot be selected without collaboration. Navigation stays a separate Pi
+extension package and does not register these tools.
