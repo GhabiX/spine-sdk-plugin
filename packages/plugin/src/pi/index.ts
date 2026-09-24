@@ -6,6 +6,7 @@ import {
   type HostOwnershipClaim,
   type PublishedContext,
   type SpawnStagingStore,
+  type SpineCompactMetadata,
   type SpineHostAdapter,
 } from "../index.js";
 
@@ -76,13 +77,12 @@ export async function createPiSpineAdapter<TMessage>(
           record: entry.record,
         }),
       persistCompact: (barrier, metadata) => {
-        if (metadata === undefined || metadata.length === 0) {
-          throw new Error("Pi compact persistence requires replacement metadata");
-        }
+        const persisted = compactPersistence(metadata);
         return options.host.appendCustomEntry(PI_COMPACT_ENTRY_TYPE, {
           schema: PI_ADAPTER_ID,
           barrier,
-          replacementMessages: metadata,
+          replacementMessages: persisted.messages,
+          ...(persisted.entryIds === undefined ? {} : { replacementEntryIds: persisted.entryIds }),
         });
       },
       context: {
@@ -91,4 +91,23 @@ export async function createPiSpineAdapter<TMessage>(
       },
     },
   });
+}
+
+function compactPersistence(metadata: SpineCompactMetadata | undefined): {
+  messages: readonly unknown[];
+  entryIds?: readonly (string | null)[];
+} {
+  if (metadata !== undefined && "messages" in metadata) {
+    if (metadata.messages.length === 0) {
+      throw new Error("Pi compact persistence requires replacement metadata");
+    }
+    if (metadata.entryIds.length !== metadata.messages.length) {
+      throw new Error("Pi compact replacement entry ids do not match replacement messages");
+    }
+    return { messages: metadata.messages, entryIds: metadata.entryIds };
+  }
+  if (metadata === undefined || metadata.length === 0) {
+    throw new Error("Pi compact persistence requires replacement metadata");
+  }
+  return { messages: metadata };
 }

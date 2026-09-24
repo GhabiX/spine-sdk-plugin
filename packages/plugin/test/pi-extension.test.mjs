@@ -1051,7 +1051,7 @@ test("WASM-backed extension blocks spawn mixed with open without aborting the se
   assert.equal(ctx.aborts, 0);
 });
 
-test("Pi overflow retry drops only the final retryable assistant", async () => {
+test("Pi overflow retry keeps an earlier error assistant after the null edit", async () => {
   const pi = mockPi();
   const ctx = extensionContext();
   const earlierError = assistant([{ type: "text", text: "keep earlier" }], "error");
@@ -1059,6 +1059,14 @@ test("Pi overflow retry drops only the final retryable assistant", async () => {
   const entries = [
     { type: "message", id: "earlier", parentId: null, timestamp: "1", message: earlierError },
     { type: "message", id: "final", parentId: "earlier", timestamp: "2", message: retryTarget },
+    {
+      type: "context_edit",
+      id: "edit-final",
+      parentId: "final",
+      timestamp: "3",
+      targetId: "final",
+      replacement: null,
+    },
   ];
   ctx.context.model = { provider: "test", id: "test-model" };
   ctx.context.modelRegistry = {
@@ -1090,6 +1098,116 @@ test("Pi overflow retry drops only the final retryable assistant", async () => {
   const compact = pi.entries.find((entry) => entry.customType === "spine.compact.v1");
   assert.equal(compact.data.replacementMessages.length, 2);
   assert.deepEqual(compact.data.replacementMessages[1].content, [{ type: "text", text: "keep earlier" }]);
+  assert.equal(JSON.stringify(compact.data.replacementMessages).includes("drop final"), false);
+  assert.deepEqual(compact.data.replacementEntryIds, [null, "earlier"]);
+});
+
+test("Pi context applies null and non-null context edits by entry id", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const kept = user("keep-user");
+  const omitted = user("OMITTED");
+  const entries = [];
+  ctx.context.sessionManager.getBranch = () => entries;
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+
+  await pi.emit("message_end", { type: "message_end", message: kept }, ctx.context);
+  entries.push({ type: "message", id: "keep", parentId: null, timestamp: "1", message: kept });
+  await pi.emit("message_end", { type: "message_end", message: omitted }, ctx.context);
+  entries.push({
+    type: "message",
+    id: "omit",
+    parentId: "keep",
+    timestamp: "2",
+    message: omitted,
+  });
+  entries.push({
+    type: "context_edit",
+    id: "edit-omit",
+    parentId: "omit",
+    timestamp: "3",
+    targetId: "omit",
+    replacement: null,
+  });
+  entries.push({
+    type: "context_edit",
+    id: "edit-keep",
+    parentId: "edit-omit",
+    timestamp: "4",
+    targetId: "keep",
+    replacement: { content: "rewritten-user" },
+  });
+
+  const context = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  const text = JSON.stringify(context.messages);
+  assert.equal(text.includes("OMITTED"), false);
+  assert.equal(text.includes("keep-user"), false);
+  assert.equal(text.includes("rewritten-user"), true);
+  assert.equal(ctx.aborts, 0);
+});
+
+test("Pi compact tail uses the host projection for omissions and rewrites", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const omitted = assistant([{ type: "text", text: "OMITTED" }], "error");
+  const kept = user("keep-user");
+  const rewritten = user("old-text");
+  const entries = [
+    { type: "message", id: "omit", parentId: null, timestamp: "1", message: omitted },
+    { type: "message", id: "keep", parentId: "omit", timestamp: "2", message: kept },
+    {
+      type: "context_edit",
+      id: "edit-omit",
+      parentId: "keep",
+      timestamp: "3",
+      targetId: "omit",
+      replacement: null,
+    },
+    { type: "message", id: "rewrite", parentId: "edit-omit", timestamp: "4", message: rewritten },
+    {
+      type: "context_edit",
+      id: "edit-text",
+      parentId: "rewrite",
+      timestamp: "5",
+      targetId: "rewrite",
+      replacement: { content: "new-text" },
+    },
+  ];
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete() {
+      return { content: [{ type: "text", text: "projected summary" }] };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => entries;
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: {
+        firstKeptEntryId: "omit",
+        messagesToSummarize: [omitted, kept, rewritten],
+        turnPrefixMessages: [],
+        tokensBefore: 12,
+      },
+      branchEntries: entries,
+      signal: new AbortController().signal,
+      reason: "overflow",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.equal(result.compaction.summary, "projected summary");
+  const compact = pi.entries.find((entry) => entry.customType === "spine.compact.v1");
+  const rendered = JSON.stringify(compact.data.replacementMessages);
+  assert.equal(rendered.includes("OMITTED"), false);
+  assert.equal(rendered.includes("old-text"), false);
+  assert.equal(rendered.includes("keep-user"), true);
+  assert.equal(rendered.includes("new-text"), true);
+  assert.deepEqual(compact.data.replacementEntryIds, [null, "keep", "rewrite"]);
 });
 
 test("Pi compact abort after Spine completion faults the live session", async () => {
@@ -1151,6 +1269,7 @@ test("Pi compact abort before Spine compact cancels without latching a fault", a
   );
   assert.deepEqual(result, { cancel: true });
   assert.equal(ctx.aborts, 0);
+  assert.deepEqual(ctx.notifications, []);
   assert.equal(pi.entries.filter((item) => item.customType === "spine.compact.v1").length, 0);
   const continued = await pi.emit(
     "before_agent_start",
@@ -1195,6 +1314,7 @@ test("Pi compact summarization AbortError cancels without latching a fault", asy
   );
   assert.deepEqual(result, { cancel: true });
   assert.equal(ctx.aborts, 0);
+  assert.deepEqual(ctx.notifications, []);
   assert.equal(pi.entries.filter((item) => item.customType === "spine.compact.v1").length, 0);
   const continued = await pi.emit(
     "before_agent_start",
@@ -1207,6 +1327,234 @@ test("Pi compact summarization AbortError cancels without latching a fault", asy
     ctx.context,
   );
   assert.match(continued.systemPrompt, /spine_open/);
+});
+
+async function continueAfterSoftCancel(pi, ctx) {
+  assert.equal(ctx.aborts, 0);
+  assert.equal(pi.entries.filter((item) => item.customType === "spine.compact.v1").length, 0);
+  const continued = await pi.emit(
+    "before_agent_start",
+    {
+      type: "before_agent_start",
+      prompt: "continue",
+      systemPrompt: "base system prompt",
+      systemPromptOptions: {},
+    },
+    ctx.context,
+  );
+  assert.match(continued.systemPrompt, /spine_open/);
+}
+
+function compactFixture() {
+  const kept = user("keep this recent request");
+  const entry = { type: "message", id: "kept-1", parentId: null, timestamp: "1", message: kept };
+  return { kept, entry };
+}
+
+test("Pi compact model error notifies the provider reason and does not use the error body", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const { kept, entry } = compactFixture();
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete() {
+      return {
+        content: [{ type: "text", text: "## Goal\nDo not keep this error body." }],
+        stopReason: "error",
+        errorMessage: "provider overloaded",
+      };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "manual",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.deepEqual(result, { cancel: true });
+  assert.deepEqual(ctx.notifications, [["provider overloaded", "error"]]);
+  await continueAfterSoftCancel(pi, ctx);
+});
+
+test("Pi compact model error without errorMessage uses the stopReason fallback", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const { kept, entry } = compactFixture();
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete() {
+      return {
+        content: [{ type: "text", text: "looks like a summary" }],
+        stopReason: "error",
+        errorMessage: "   ",
+      };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "manual",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.deepEqual(result, { cancel: true });
+  assert.deepEqual(ctx.notifications, [["Pi compaction model returned stopReason=error", "error"]]);
+  await continueAfterSoftCancel(pi, ctx);
+});
+
+test("Pi compact empty summary cancels without latching a fault", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const { kept, entry } = compactFixture();
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete() {
+      return { content: [{ type: "text", text: "   " }], stopReason: "stop" };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "manual",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.deepEqual(result, { cancel: true });
+  assert.deepEqual(ctx.notifications, [["Pi compaction model returned an empty summary", "error"]]);
+  await continueAfterSoftCancel(pi, ctx);
+});
+
+test("Pi compact missing first-kept entry cancels without latching a fault", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const { kept, entry } = compactFixture();
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete() {
+      return { content: [{ type: "text", text: "summary" }], stopReason: "stop" };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: { firstKeptEntryId: "missing", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "manual",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.deepEqual(result, { cancel: true });
+  assert.deepEqual(ctx.notifications, [["Pi compaction first-kept entry is missing from the active branch", "error"]]);
+  await continueAfterSoftCancel(pi, ctx);
+});
+
+test("Pi compact complete failure cancels without latching a fault", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const { kept, entry } = compactFixture();
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete() {
+      throw new Error("summary model unavailable");
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "manual",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.deepEqual(result, { cancel: true });
+  assert.deepEqual(ctx.notifications, [["summary model unavailable", "error"]]);
+  await continueAfterSoftCancel(pi, ctx);
+});
+
+test("Pi compact commit failure still faults the live session", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const { kept, entry } = compactFixture();
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete() {
+      return { content: [{ type: "text", text: "summary" }], stopReason: "stop" };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit(
+    "before_provider_request",
+    { type: "before_provider_request", payload: { model: "test", input: ["keep"] } },
+    ctx.context,
+  );
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "manual",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.deepEqual(result, { cancel: true });
+  assert.equal(ctx.aborts, 1);
+  assert.deepEqual(ctx.notifications, [["Spine faulted; current Pi operation aborted", "error"]]);
+  await assert.rejects(
+    () => pi.emit(
+      "before_agent_start",
+      {
+        type: "before_agent_start",
+        prompt: "continue",
+        systemPrompt: "base system prompt",
+        systemPromptOptions: {},
+      },
+      ctx.context,
+    ),
+    /Pi Spine extension is faulted/,
+  );
 });
 
 test("user abort after Spine tool register drains leftover execution without latching", async () => {

@@ -115,6 +115,54 @@ test("Pi renders only the canonical Spine-owned projection forms", () => {
   assert.match(messages[2].content, /^<spine_spawn_evidence node_id="0">/);
 });
 
+test("Pi materialization applies an entry projection without matching message text", () => {
+  const bindings = new PiSourceBindings();
+  const kept = { role: "user", content: "keep", timestamp: 1 };
+  const omitted = { role: "user", content: "OMITTED", timestamp: 2 };
+  const rewritten = {
+    role: "assistant",
+    content: [{ type: "text", text: "old" }],
+    timestamp: 3,
+  };
+  const source = (ordinal) => ({ thread: "pi-session", epoch: 0, ordinal });
+  bindings.bind(source(0), kept, "keep");
+  bindings.bind(source(1), omitted, "omit");
+  bindings.bind(source(2), rewritten, "edit");
+  const cell = (ordinal, labels = []) => ({
+    type: "source",
+    source_id: source(ordinal),
+    labels,
+  });
+  const messages = materializePiContext({
+    transactionId: "preview:plan",
+    contextPlan: {
+      schema: "spine.context.plan.v1",
+      thread: "pi-session",
+      epoch: 0,
+      source_snapshot_digest: "source",
+      cells: [
+        cell(0, [{ UserAnchor: 4 }]),
+        cell(1, [{ UserAnchor: 5 }]),
+        cell(2),
+      ],
+      memory_slots: [],
+      plan_digest: "plan",
+    },
+    projection: { nodes: [], cursor: [], visible_context: [], last_boundary: null },
+  }, bindings, {
+    projectedMessages: new Map([
+      ["keep", [kept]],
+      ["omit", []],
+      ["edit", [{ ...rewritten, content: [{ type: "text", text: "new" }] }]],
+    ]),
+  });
+
+  assert.deepEqual(messages, [
+    { role: "user", content: "[U4]\nkeep", timestamp: 1 },
+    { ...rewritten, content: [{ type: "text", text: "new" }] },
+  ]);
+});
+
 test("Pi fails closed for missing source identity and unsupported projection", () => {
   const plan = (cell) => ({
     transactionId: "preview:plan",

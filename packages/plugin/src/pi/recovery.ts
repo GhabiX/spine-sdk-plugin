@@ -22,6 +22,7 @@ import {
 
 export interface PiBranchEntry {
   type: string;
+  id?: string;
   customType?: string;
   data?: unknown;
   fromHook?: boolean;
@@ -30,6 +31,7 @@ export interface PiBranchEntry {
 export interface PiReplaySource {
   boundary: number;
   message: PiAgentMessage;
+  entryId: string | null;
 }
 
 export interface PiReplayPlan {
@@ -85,6 +87,15 @@ export function buildPiReplayPlan(options: BuildPiReplayPlanOptions): PiReplayPl
         );
       }
       compactAwaitingPiEntry = false;
+      const summary = sources[0];
+      if (
+        summary !== undefined &&
+        summary.entryId === null &&
+        typeof entry.id === "string" &&
+        entry.id.length > 0
+      ) {
+        summary.entryId = entry.id;
+      }
       continue;
     }
     if (compactAwaitingPiEntry) {
@@ -116,6 +127,7 @@ export function buildPiReplayPlan(options: BuildPiReplayPlanOptions): PiReplayPl
       sources = compact.replacementMessages.map((message, index) => ({
         boundary: compact.barrier.replacement_boundaries[index]!,
         message: message as PiAgentMessage,
+        entryId: storedEntryId(compact.replacementEntryIds, index),
       }));
       boundary = compact.barrier.replacement_boundaries.at(-1)! + 1;
       continue;
@@ -132,7 +144,11 @@ export function buildPiReplayPlan(options: BuildPiReplayPlanOptions): PiReplayPl
       if (isPiHostSystemMessage(message)) continue;
       const observation = sourceObservation(message, boundary);
       inputs.push({ type: "source", character: observation.character });
-      sources.push({ boundary, message: observation.message });
+      sources.push({
+        boundary,
+        message: observation.message,
+        entryId: typeof entry.id === "string" && entry.id.length > 0 ? entry.id : null,
+      });
       boundary += 1;
     }
   }
@@ -193,25 +209,25 @@ export function installSourceBindings(
     );
   }
 
-  const byBoundary = new Map<number, PiAgentMessage>();
+  const byBoundary = new Map<number, PiReplaySource>();
   for (const observation of observations) {
     if (byBoundary.has(observation.boundary)) {
       throw new PiSessionRecoveryError(
         `Pi replay has duplicate source boundary ${observation.boundary}`,
       );
     }
-    byBoundary.set(observation.boundary, observation.message);
+    byBoundary.set(observation.boundary, observation);
   }
 
   bindings.clear();
   for (const cell of source.cells) {
-    const message = byBoundary.get(cell.boundary);
-    if (message === undefined) {
+    const observation = byBoundary.get(cell.boundary);
+    if (observation === undefined) {
       throw new PiSessionRecoveryError(
         `Spine source cell ${cell.source_id.ordinal} has unknown boundary ${cell.boundary}`,
       );
     }
-    bindings.bind(cell.source_id, message);
+    bindings.bind(cell.source_id, observation.message, observation.entryId);
   }
 }
 
@@ -285,7 +301,30 @@ function decodeCompactEntry(value: unknown): PiSpineCompactEntry {
   ) {
     throw new PiSessionRecoveryError("Pi Spine compact entry is malformed");
   }
+  if (value.replacementEntryIds !== undefined) {
+    if (
+      !Array.isArray(value.replacementEntryIds) ||
+      value.replacementEntryIds.length !== value.replacementMessages.length
+    ) {
+      throw new PiSessionRecoveryError(
+        "Pi Spine compact replacement entry ids do not match replacement messages",
+      );
+    }
+    for (const entryId of value.replacementEntryIds) {
+      if (entryId !== null && (typeof entryId !== "string" || entryId.length === 0)) {
+        throw new PiSessionRecoveryError("Pi Spine compact replacement entry id is malformed");
+      }
+    }
+  }
   return value as unknown as PiSpineCompactEntry;
+}
+
+function storedEntryId(
+  entryIds: readonly (string | null)[] | undefined,
+  index: number,
+): string | null {
+  const entryId = entryIds?.[index];
+  return typeof entryId === "string" && entryId.length > 0 ? entryId : null;
 }
 
 function verifyCommittedSpawnStaging(

@@ -15,6 +15,7 @@ import {
   type FinishSamplingResult,
   type PublishedContext,
   type SpineArchiveStore,
+  type SpineCompactMetadata,
   type SpineContextPublisher,
 } from "./controller.js";
 
@@ -44,7 +45,7 @@ export interface HostContextTransport<TMessage> {
 export interface HostAdapterBinding<TMessage> {
   claimOwnership(claim: HostOwnershipClaim): Promise<void>;
   persistArchive(entry: HostArchiveEnvelope): Promise<void>;
-  persistCompact?: (barrier: CompactBarrier, metadata?: readonly unknown[]) => Promise<void>;
+  persistCompact?: (barrier: CompactBarrier, metadata?: SpineCompactMetadata) => Promise<void>;
   context: HostContextTransport<TMessage>;
 }
 
@@ -96,7 +97,7 @@ export class SpineHostAdapter {
 
   compact(
     barrier: CompactBarrier,
-    options: { publish?: boolean; metadata?: readonly unknown[] } = {},
+    options: { publish?: boolean; metadata?: SpineCompactMetadata } = {},
   ): Promise<PublishedContext> {
     return this.#controller.compact(barrier, options);
   }
@@ -149,7 +150,7 @@ export async function createHostAdapter<TMessage>(
     ...(options.host.persistCompact === undefined
       ? {}
       : {
-          persistCompact: (barrier: CompactBarrier, metadata?: readonly unknown[]) =>
+          persistCompact: (barrier: CompactBarrier, metadata?: SpineCompactMetadata) =>
             options.host.persistCompact!(barrier, metadata),
         }),
   };

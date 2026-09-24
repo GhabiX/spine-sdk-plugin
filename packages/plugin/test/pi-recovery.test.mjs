@@ -220,6 +220,66 @@ test("Pi replay restores compact replacement bindings and resumes boundaries", (
   ]);
 });
 
+test("Pi replay keeps compact replacement entry ids and the compaction entry id", () => {
+  const summary = { role: "compactionSummary", summary: "checkpoint", tokensBefore: 4, timestamp: 2 };
+  const kept = { role: "user", content: "kept", timestamp: 3 };
+  const plan = buildPiReplayPlan({
+    currentSessionId: "origin-session",
+    branch: [
+      { type: "message", id: "old", messages: [{ role: "user", content: "old", timestamp: 1 }] },
+      {
+        type: "custom",
+        customType: PI_COMPACT_ENTRY_TYPE,
+        data: {
+          schema: PI_ADAPTER_ID,
+          barrier: {
+            schema: "spine.compact.barrier.v1",
+            thread: "origin-session",
+            previous_epoch: 0,
+            next_epoch: 1,
+            boundary: 1,
+            replacement_boundaries: [2, 3],
+            replacement_digest: "0".repeat(64),
+          },
+          replacementMessages: [summary, kept],
+          replacementEntryIds: [null, "keep"],
+        },
+      },
+      { type: "compaction", id: "compact-1", fromHook: true },
+    ],
+    messagesForEntry: (entry) => entry.messages ?? [],
+  });
+  assert.deepEqual(plan.sources.map((source) => source.entryId), ["compact-1", "keep"]);
+});
+
+test("Pi replay rejects compact entry ids that do not match the replacement", () => {
+  assert.throws(
+    () => buildPiReplayPlan({
+      currentSessionId: "origin-session",
+      branch: [{
+        type: "custom",
+        customType: PI_COMPACT_ENTRY_TYPE,
+        data: {
+          schema: PI_ADAPTER_ID,
+          barrier: {
+            schema: "spine.compact.barrier.v1",
+            thread: "origin-session",
+            previous_epoch: 0,
+            next_epoch: 1,
+            boundary: 1,
+            replacement_boundaries: [2],
+            replacement_digest: "0".repeat(64),
+          },
+          replacementMessages: [{ role: "user", content: "kept", timestamp: 1 }],
+          replacementEntryIds: [null, "extra"],
+        },
+      }],
+      messagesForEntry: () => [],
+    }),
+    /do not match replacement messages/,
+  );
+});
+
 test("Pi recovery replays a durable compact barrier before publishing replacement messages", async () => {
   const origin = createNodeSpineRuntime({ thread: "origin-session", features: ["jit", "spawn"] });
   await origin.client.execute({

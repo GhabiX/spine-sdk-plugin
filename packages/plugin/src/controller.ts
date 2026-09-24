@@ -27,9 +27,16 @@ export interface PublishedContext {
   projection: SpineProjection;
 }
 
+export type SpineCompactMetadata =
+  | readonly unknown[]
+  | {
+      messages: readonly unknown[];
+      entryIds: readonly (string | null)[];
+    };
+
 export interface SpineArchiveStore {
   persist(entry: DurableArchiveEntry): Promise<void>;
-  persistCompact?: (barrier: CompactBarrier, metadata?: readonly unknown[]) => Promise<void>;
+  persistCompact?: (barrier: CompactBarrier, metadata?: SpineCompactMetadata) => Promise<void>;
 }
 
 export interface SpineContextPublisher {
@@ -173,7 +180,7 @@ export class SpineController {
 
   async compact(
     barrier: CompactBarrier,
-    options: { publish?: boolean; metadata?: readonly unknown[] } = {},
+    options: { publish?: boolean; metadata?: SpineCompactMetadata } = {},
   ): Promise<PublishedContext> {
     return this.#exclusive(async () => {
       this.#assertHealthy();

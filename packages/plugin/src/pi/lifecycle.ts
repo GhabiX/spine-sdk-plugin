@@ -124,7 +124,11 @@ export class PiSamplingLifecycle {
     return this.#guard(() => this.#adapter.sourceSnapshot());
   }
 
-  async compact(barrier: CompactBarrier, replacementMessages: readonly PiAgentMessage[]): Promise<void> {
+  async compact(
+    barrier: CompactBarrier,
+    replacementMessages: readonly PiAgentMessage[],
+    entryIds?: readonly (string | null)[],
+  ): Promise<void> {
     await this.#guard(async () => {
       if (this.#samplingActive) {
         throw new PiSamplingLifecycleError("Pi compaction started before the sampling turn ended");
@@ -134,10 +138,17 @@ export class PiSamplingLifecycle {
           "Pi compact replacement messages do not match replacement boundaries",
         );
       }
+      if (entryIds !== undefined && entryIds.length !== replacementMessages.length) {
+        throw new PiSamplingLifecycleError(
+          "Pi compact replacement entry ids do not match replacement messages",
+        );
+      }
       const targetVersion = ++this.#contextVersion;
       await this.#adapter.compact(barrier, {
         publish: false,
-        metadata: replacementMessages,
+        metadata: entryIds === undefined
+          ? replacementMessages
+          : { messages: replacementMessages, entryIds },
       });
       const source = await this.#adapter.sourceSnapshot();
       if (source.cells.length !== replacementMessages.length) {
@@ -153,7 +164,7 @@ export class PiSamplingLifecycle {
             `Spine compact returned an unexpected replacement boundary ${cell.boundary}`,
           );
         }
-        this.#bindings.bind(cell.source_id, replacementMessages[index]!);
+        this.#bindings.bind(cell.source_id, replacementMessages[index]!, entryIds?.[index] ?? null);
       }
       this.#nextBoundary = nextSourceBoundary(source);
       await this.#adapter.previewAndPublish();

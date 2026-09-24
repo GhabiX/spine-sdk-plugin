@@ -131,34 +131,62 @@ function sourceCharacterContent(message: PiAgentMessage): string {
   return parts.join("");
 }
 
-export class PiSourceBindings {
-  readonly #messages = new Map<string, PiAgentMessage>();
+interface BoundPiSource {
+  message: PiAgentMessage;
+  entryId: string | null;
+}
 
-  bind(sourceId: EpochOrdinalId, message: PiAgentMessage): void {
+export class PiSourceBindings {
+  readonly #messages = new Map<string, BoundPiSource>();
+
+  bind(sourceId: EpochOrdinalId, message: PiAgentMessage, entryId: string | null = null): void {
     const key = sourceIdKey(sourceId);
     if (this.#messages.has(key)) {
       throw new PiContextMaterializationError(`duplicate Pi source binding ${key}`);
     }
-    this.#messages.set(key, structuredClone(message));
+    this.#messages.set(key, { message: structuredClone(message), entryId });
   }
 
   resolve(sourceId: EpochOrdinalId): PiAgentMessage {
-    const message = this.#messages.get(sourceIdKey(sourceId));
-    if (message === undefined) {
-      throw new PiContextMaterializationError(
-        `missing Pi message for source ${sourceIdKey(sourceId)}`,
-      );
+    return structuredClone(this.#require(sourceId).message);
+  }
+
+  entryId(sourceId: EpochOrdinalId): string | null {
+    return this.#require(sourceId).entryId;
+  }
+
+  /** Fill entry ids that were not known when the source was observed. Length must match. */
+  assignEntryIds(entryIds: readonly (string | null)[]): void {
+    const records = [...this.#messages.values()];
+    if (records.length !== entryIds.length) return;
+    for (let index = 0; index < records.length; index += 1) {
+      const entryId = entryIds[index];
+      const record = records[index]!;
+      if (record.entryId === null && typeof entryId === "string" && entryId.length > 0) {
+        record.entryId = entryId;
+      }
     }
-    return structuredClone(message);
   }
 
   clear(): void {
     this.#messages.clear();
   }
+
+  #require(sourceId: EpochOrdinalId): BoundPiSource {
+    const record = this.#messages.get(sourceIdKey(sourceId));
+    if (record === undefined) {
+      throw new PiContextMaterializationError(
+        `missing Pi message for source ${sourceIdKey(sourceId)}`,
+      );
+    }
+    return record;
+  }
 }
 
 export interface PiContextMaterializationOptions {
   nodePrompt?: string;
+  /** Model-visible messages for a session entry. An empty list omits that entry. */
+  projectedMessages?: ReadonlyMap<string, readonly PiAgentMessage[]>;
 }
 
 export function materializePiContext(
@@ -172,9 +200,21 @@ export function materializePiContext(
   }
 
   const messages: PiAgentMessage[] = [];
+  const projectedIndex = new Map<string, number>();
   for (const cell of plan.cells) {
     if (cell.type === "source") {
-      let message = bindings.resolve(cell.source_id);
+      const entryId = bindings.entryId(cell.source_id);
+      const projected = entryId === null ? undefined : options.projectedMessages?.get(entryId);
+      let message: PiAgentMessage;
+      if (projected !== undefined) {
+        const index = projectedIndex.get(entryId!) ?? 0;
+        projectedIndex.set(entryId!, index + 1);
+        const replacement = projected[index];
+        if (replacement === undefined) continue;
+        message = structuredClone(replacement);
+      } else {
+        message = bindings.resolve(cell.source_id);
+      }
       for (const label of cell.labels) {
         message = prependUserAnchor(message, label.UserAnchor);
       }

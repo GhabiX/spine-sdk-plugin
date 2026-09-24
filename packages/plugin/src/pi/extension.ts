@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import {
+  buildSessionProjection,
   convertToLlm,
   serializeConversation,
   sessionEntryToContextMessages,
@@ -51,13 +52,18 @@ import {
   PiSpineToolMixError,
   PI_SPINE_TOOL_NAMES,
 } from "./lifecycle.js";
-import { isPiHostSystemMessage, materializePiContext, type PiAgentMessage } from "./messages.js";
+import {
+  isPiHostSystemMessage,
+  materializePiContext,
+  type PiAgentMessage,
+  type PiSourceBindings,
+} from "./messages.js";
 import { adaptSpineSystemPromptForPi, rewriteSpineToolNamesForPi } from "./prompt.js";
 import { resolvePiInvocation } from "./invocation.js";
 import {
   linesComponent,
 } from "./pretty-tree.js";
-import { buildPiReplayPlan, recoverPiSession } from "./recovery.js";
+import { buildPiReplayPlan, recoverPiSession, type PiBranchEntry } from "./recovery.js";
 import { SpineTreeDisplay } from "./tree-view.js";
 import { SPINE_TREE_VIEW_REQUEST } from "./tree-view-contract.js";
 import {
@@ -588,13 +594,27 @@ function registerLifecycleHandlers(
       event: SessionBeforeCompactEvent,
       ctx: ExtensionContext,
     ): Promise<{ cancel?: boolean; compaction?: CompactionResult } | undefined> => {
+    let session: ActivePiSession;
     try {
-      const session = await requireSession(slot);
-      const summaryResult = await summarizePiCompaction(event, ctx);
+      session = await requireSession(slot);
+    } catch (cause) {
+      faultAndAbort(slot, ctx, cause);
+      return { cancel: true };
+    }
+    let summaryResult: { summary: string; usage?: CompactionResult["usage"] };
+    let retained: { messages: PiAgentMessage[]; entryIds: (string | null)[] };
+    try {
+      summaryResult = await summarizePiCompaction(event, ctx);
       if (event.signal?.aborted === true) {
         return { cancel: true };
       }
-      const retained = retainedPiMessages(event, event.willRetry);
+      retained = retainedPiMessages(event);
+    } catch (cause) {
+      if (isPiCompactionHostAbort(event, cause)) return { cancel: true };
+      notifyPiCompactionFailure(ctx, cause);
+      return { cancel: true };
+    }
+    try {
       const replacementMessages: PiAgentMessage[] = [
         {
           role: "compactionSummary",
@@ -602,11 +622,11 @@ function registerLifecycleHandlers(
           tokensBefore: event.preparation.tokensBefore,
           timestamp: Date.now(),
         },
-        ...retained,
+        ...retained.messages,
       ];
       const source = await session.lifecycle.sourceSnapshot();
       const barrier = buildCompactBarrier(source, replacementMessages.length);
-      await session.lifecycle.compact(barrier, replacementMessages);
+      await session.lifecycle.compact(barrier, replacementMessages, [null, ...retained.entryIds]);
       slot.compactionHandled = true;
       renderSpineTree(ctx, slot, session);
       const onAbort = () => {
@@ -679,6 +699,10 @@ async function summarizePiCompaction(
   if (event.signal?.aborted === true || response.stopReason === "aborted") {
     throw abortError("Pi compaction summarization aborted");
   }
+  if (response.stopReason === "error") {
+    const detail = typeof response.errorMessage === "string" ? response.errorMessage.trim() : "";
+    throw new Error(detail.length > 0 ? detail : "Pi compaction model returned stopReason=error");
+  }
   const summary = response.content
     .filter((part): part is { type: "text"; text: string } => part.type === "text")
     .map((part) => part.text)
@@ -691,19 +715,51 @@ async function summarizePiCompaction(
 
 function retainedPiMessages(
   event: { branchEntries: readonly SessionEntry[]; preparation: { firstKeptEntryId: string } },
-  willRetry: boolean,
-): PiAgentMessage[] {
-  const start = event.branchEntries.findIndex((entry) => entry.id === event.preparation.firstKeptEntryId);
+): { messages: PiAgentMessage[]; entryIds: (string | null)[] } {
+  const projection = buildSessionProjection([...event.branchEntries]);
+  const start = projection.entries.findIndex(
+    (entry) => entry.sourceEntry.id === event.preparation.firstKeptEntryId,
+  );
   if (start < 0) throw new Error("Pi compaction first-kept entry is missing from the active branch");
-  const retained = event.branchEntries
-    .slice(start)
-    .flatMap((entry) => sessionEntryToContextMessages(entry as SessionEntry) as PiAgentMessage[])
-    .filter((message) => !isPiHostSystemMessage(message));
-  if (!willRetry) return retained;
-  const final = retained.at(-1);
-  return final?.role === "assistant" && (final.stopReason === "error" || final.stopReason === "length")
-    ? retained.slice(0, -1)
-    : retained;
+  const messages: PiAgentMessage[] = [];
+  const entryIds: (string | null)[] = [];
+  for (const entry of projection.entries.slice(start)) {
+    for (const message of entry.messages) {
+      if (isPiHostSystemMessage(message)) continue;
+      messages.push(message as PiAgentMessage);
+      entryIds.push(entry.sourceEntry.id);
+    }
+  }
+  return { messages, entryIds };
+}
+
+function projectedPiMessages(branch: readonly PiBranchEntry[]): Map<string, PiAgentMessage[]> {
+  const projected = new Map<string, PiAgentMessage[]>();
+  for (const entry of buildSessionProjection(branch as SessionEntry[]).entries) {
+    projected.set(
+      entry.sourceEntry.id,
+      entry.messages.filter((message) => !isPiHostSystemMessage(message)) as PiAgentMessage[],
+    );
+  }
+  return projected;
+}
+
+function assignMissingPiSourceEntryIds(
+  bindings: PiSourceBindings,
+  branch: readonly PiBranchEntry[],
+): void {
+  let sources: { entryId: string | null }[];
+  try {
+    sources = buildPiReplayPlan({
+      currentSessionId: "pi-projection",
+      branch,
+      messagesForEntry: (entry) =>
+        sessionEntryToContextMessages(entry as SessionEntry) as PiAgentMessage[],
+    }).sources;
+  } catch {
+    return;
+  }
+  bindings.assignEntryIds(sources.map((source) => source.entryId));
 }
 
 async function initializeSession(
@@ -744,8 +800,11 @@ async function initializeSession(
               pi.appendEntry(type, entry);
             },
             async materializeContext(context) {
+              const branch = ctx.sessionManager.getBranch() as PiBranchEntry[];
+              assignMissingPiSourceEntryIds(bindings, branch);
               return materializePiContext(context, bindings, {
                 nodePrompt: rewriteSpineToolNamesForPi(runtime?.nodePrompt() ?? ""),
+                projectedMessages: projectedPiMessages(branch),
               });
             },
             async replaceContext(context) {
@@ -1047,6 +1106,13 @@ function faultAndAbort(slot: MutableSessionSlot, ctx: ExtensionContext, cause: u
 
 function isPiCompactionHostAbort(event: SessionBeforeCompactEvent, cause: unknown): boolean {
   return event.signal?.aborted === true || isAbortError(cause);
+}
+
+function notifyPiCompactionFailure(ctx: ExtensionContext, cause: unknown): void {
+  const message = cause instanceof Error && cause.message.trim() !== ""
+    ? cause.message
+    : "Pi compaction failed";
+  ctx.ui.notify(message, "error");
 }
 
 function isAbortError(cause: unknown): boolean {

@@ -15,6 +15,8 @@ export interface PiSpineCompactEntry {
   schema: typeof PI_ADAPTER_ID;
   barrier: CompactBarrier;
   replacementMessages: readonly unknown[];
+  /** Parallel to replacementMessages. Null until the host entry id is known. */
+  replacementEntryIds?: readonly (string | null)[];
 }
 
 export interface PiSpawnTerminalEntry {
