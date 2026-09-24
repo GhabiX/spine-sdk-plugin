@@ -193,13 +193,13 @@ module. The package export `@spinejit/spine-plugin/pi/extension` remains the
 compiled `dist` module for tests and direct imports.
 It registers the four canonical tools, has no browsing slash commands, and
 uses `@spinejit/spine-sdk/node` for the packaged WASM runtime.
-Before each agent run, the extension's `before_agent_start` hook extends Pi's
-assembled system prompt through the runtime's configured `SpineConfig` and
-rewrites `spine.*` names. The adapter then inserts one sentence after the D&C
-ownership paragraph: finalize a completed branch; a user message that is a new
-obligation rather than the current one belongs at its owning level. Canonical
-instruction text otherwise remains in `spine-core`; the adapter does not copy
-the rest of the prompt or rely on tool descriptions as a substitute for it.
+Pi reads `packages/plugin/spine.toml` and passes that text to the WASM runtime
+as `configToml`. The file owns Pi's JIT text, node text, and tool descriptions.
+Editing it does not require a WASM rebuild. Hosts that omit `configToml` still
+use the `spine-core` embedded default. Before each agent run, the extension's
+`before_agent_start` hook extends Pi's assembled system prompt through this
+configured runtime. Pi tool names are written in the toml. The extension does not
+rewrite them or insert a second copy of the prompt.
 In interactive Pi TUI mode it renders a folded SpineCodex-style pretty tree as an
 `aboveEditor` widget keyed by `spine-tree`, with one blank row below the tree
 to separate it from the input border, refreshed only when the display

@@ -39,7 +39,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "spine.toml"
   ],
   "engines": {
     "node": ">=22.19.0"

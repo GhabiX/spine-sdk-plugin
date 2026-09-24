@@ -58,7 +58,7 @@ import {
   type PiAgentMessage,
   type PiSourceBindings,
 } from "./messages.js";
-import { adaptSpineSystemPromptForPi, rewriteSpineToolNamesForPi } from "./prompt.js";
+import { loadPiSpineConfigToml } from "./spine-config.js";
 import { resolvePiInvocation } from "./invocation.js";
 import {
   linesComponent,
@@ -178,7 +178,11 @@ function activatePiExtension(
   publishCommitted?: (record: PostCommitRecord) => Promise<void>,
 ): void {
   const runtimeFactory = options.runtimeFactory ?? {
-    create: (thread: string) => createNodeSpineRuntime({ thread, features: ["jit", "spawn"] }),
+    create: (thread: string) => createNodeSpineRuntime({
+      thread,
+      features: ["jit", "spawn"],
+      configToml: loadPiSpineConfigToml(),
+    }),
   };
 
   pi.registerFlag(CHILD_FLAG, {
@@ -385,12 +389,16 @@ function loadCanonicalSpineTools(): Array<{
   description: string;
   parameters: ReturnType<typeof Type.Unsafe>;
 }> {
-  const runtime = createNodeSpineRuntime({ thread: "pi-tool-catalog", features: ["jit", "spawn"] });
+  const runtime = createNodeSpineRuntime({
+    thread: "pi-tool-catalog",
+    features: ["jit", "spawn"],
+    configToml: loadPiSpineConfigToml(),
+  });
   try {
     return runtime.toolCatalog().map((tool) => ({
       name: `spine_${tool.id}`,
       label: `Spine ${tool.id[0]?.toUpperCase() ?? ""}${tool.id.slice(1)}`,
-      description: rewriteSpineToolNamesForPi(tool.description),
+      description: tool.description,
       parameters: Type.Unsafe(tool.parameters),
     }));
   } finally {
@@ -501,7 +509,7 @@ function registerLifecycleHandlers(
   pi.on("before_agent_start", async (event) => {
     const session = await requireSession(slot);
     return {
-      systemPrompt: adaptSpineSystemPromptForPi(session.runtime.extendSystemPrompt(event.systemPrompt)),
+      systemPrompt: session.runtime.extendSystemPrompt(event.systemPrompt),
     };
   });
   pi.on("tool_call", async (event, ctx) => {
@@ -803,7 +811,7 @@ async function initializeSession(
               const branch = ctx.sessionManager.getBranch() as PiBranchEntry[];
               assignMissingPiSourceEntryIds(bindings, branch);
               return materializePiContext(context, bindings, {
-                nodePrompt: rewriteSpineToolNamesForPi(runtime?.nodePrompt() ?? ""),
+                nodePrompt: runtime?.nodePrompt() ?? "",
                 projectedMessages: projectedPiMessages(branch),
               });
             },

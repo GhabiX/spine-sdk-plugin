@@ -10,6 +10,7 @@ import extension, {
 } from "../dist/pi/extension.js";
 import { createNodeSpineRuntime } from "@spinejit/spine-sdk/node";
 import { resolvePiInvocation } from "../dist/pi/invocation.js";
+import { loadPiSpineConfigToml } from "../dist/pi/spine-config.js";
 import { SPINE_TREE_VIEW_REQUEST } from "../dist/pi/tree-view-contract.js";
 
 function mockPi() {
@@ -272,18 +273,18 @@ test("before_agent_start installs the canonical Spine instruction", async () => 
   const expectedRuntime = createNodeSpineRuntime({
     thread: "pi-session",
     features: ["jit", "spawn"],
+    configToml: loadPiSpineConfigToml(),
   });
   try {
-    const { adaptSpineSystemPromptForPi } = await import("../dist/pi/prompt.js");
     assert.equal(
       result.systemPrompt,
-      adaptSpineSystemPromptForPi(expectedRuntime.extendSystemPrompt("base system prompt")),
+      expectedRuntime.extendSystemPrompt("base system prompt"),
     );
     assert.match(result.systemPrompt, /spine_open/);
     assert.doesNotMatch(result.systemPrompt, /spine\.open/);
     assert.match(
       result.systemPrompt,
-      /Finalize a SpineBranch when its owned obligation is complete/,
+      /A user message is not the granularity of a SpineBranch/,
     );
   } finally {
     expectedRuntime.dispose();
