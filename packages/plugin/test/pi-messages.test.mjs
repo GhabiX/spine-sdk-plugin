@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  isPiHostSystemMessage,
   materializePiContext,
   PiContextMaterializationError,
   PiSourceBindings,
@@ -9,6 +10,12 @@ import {
 } from "../dist/pi/index.js";
 
 const SOURCE_ID = { thread: "pi-session", epoch: 0, ordinal: 0 };
+
+test("Pi host system messages are not conversation sources", () => {
+  assert.equal(isPiHostSystemMessage({ role: "system" }), true);
+  assert.equal(isPiHostSystemMessage({ role: "user" }), false);
+  assert.equal(isPiHostSystemMessage({ role: "toolResult" }), false);
+});
 
 test("Pi source observations preserve native messages outside the semantic core", () => {
   const message = {

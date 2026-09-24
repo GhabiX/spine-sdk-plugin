@@ -9,7 +9,7 @@ import type {
 import { archiveRecordId } from "../controller.js";
 import type { SpineHostAdapter } from "../host-adapter.js";
 import { recoverStagedSpawnResults, spawnResultListsEqual } from "../spawn.js";
-import { PiSourceBindings, sourceObservation, type PiAgentMessage } from "./messages.js";
+import { isPiHostSystemMessage, PiSourceBindings, sourceObservation, type PiAgentMessage } from "./messages.js";
 import {
   PI_ADAPTER_ID,
   PI_ARCHIVE_ENTRY_TYPE,
@@ -129,6 +129,7 @@ export function buildPiReplayPlan(options: BuildPiReplayPlanOptions): PiReplayPl
     }
 
     for (const message of options.messagesForEntry(entry)) {
+      if (isPiHostSystemMessage(message)) continue;
       const observation = sourceObservation(message, boundary);
       inputs.push({ type: "source", character: observation.character });
       sources.push({ boundary, message: observation.message });

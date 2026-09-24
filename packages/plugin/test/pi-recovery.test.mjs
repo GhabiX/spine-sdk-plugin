@@ -489,6 +489,26 @@ test("Pi replay accepts Spawn staging that omits optional fields present as null
   }));
 });
 
+test("Pi replay skips host system messages before assigning source boundaries", () => {
+  const plan = buildPiReplayPlan({
+    currentSessionId: "session",
+    branch: [{
+      type: "message",
+      messages: [
+        { role: "system", content: "", timestamp: 1 },
+        { role: "user", content: "request", timestamp: 2 },
+        { role: "toolResult", toolCallId: "call-1", toolName: "read", content: [], isError: false, timestamp: 3 },
+      ],
+    }],
+    messagesForEntry: (entry) => entry.messages ?? [],
+  });
+  assert.deepEqual(plan.inputs.map(({ type }) => type), ["source", "source"]);
+  assert.deepEqual(plan.sources.map(({ boundary, message }) => [boundary, message.role]), [
+    [0, "user"],
+    [1, "toolResult"],
+  ]);
+});
+
 test("Pi replay still rejects Spawn staging whose memory disagrees with the commit", () => {
   assert.throws(
     () => buildPiReplayPlan({

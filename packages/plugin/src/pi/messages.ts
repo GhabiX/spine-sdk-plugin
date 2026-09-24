@@ -88,6 +88,11 @@ export class PiContextMaterializationError extends Error {
   }
 }
 
+/** Pi owns prompt sections and tool declarations. They are not conversation sources. */
+export function isPiHostSystemMessage(message: { role: string }): boolean {
+  return message.role === "system";
+}
+
 export function sourceObservation(
   message: PiAgentMessage,
   boundary: number,

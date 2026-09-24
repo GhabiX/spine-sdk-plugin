@@ -10,7 +10,7 @@ import type {
 import type { SpineHostAdapter } from "../host-adapter.js";
 import type { FinishSamplingResult } from "../controller.js";
 import { validateSpawnResults } from "../spawn.js";
-import { PiSourceBindings, sourceObservation, type PiAgentMessage } from "./messages.js";
+import { isPiHostSystemMessage, PiSourceBindings, sourceObservation, type PiAgentMessage } from "./messages.js";
 import {
   decodeSpineSpawnTasks,
   isSpineToolName,
@@ -77,6 +77,7 @@ export class PiSamplingLifecycle {
   }
 
   async observeMessage(message: PiAgentMessage): Promise<void> {
+    if (isPiHostSystemMessage(message)) return;
     await this.#guard(async () => {
       const observation = sourceObservation(message, this.#nextBoundary);
       const sourceIds = await this.#adapter.observeSources([observation.character]);

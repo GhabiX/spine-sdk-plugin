@@ -51,7 +51,7 @@ import {
   PiSpineToolMixError,
   PI_SPINE_TOOL_NAMES,
 } from "./lifecycle.js";
-import { materializePiContext, type PiAgentMessage } from "./messages.js";
+import { isPiHostSystemMessage, materializePiContext, type PiAgentMessage } from "./messages.js";
 import { adaptSpineSystemPromptForPi, rewriteSpineToolNamesForPi } from "./prompt.js";
 import { resolvePiInvocation } from "./invocation.js";
 import {
@@ -697,7 +697,8 @@ function retainedPiMessages(
   if (start < 0) throw new Error("Pi compaction first-kept entry is missing from the active branch");
   const retained = event.branchEntries
     .slice(start)
-    .flatMap((entry) => sessionEntryToContextMessages(entry as SessionEntry) as PiAgentMessage[]);
+    .flatMap((entry) => sessionEntryToContextMessages(entry as SessionEntry) as PiAgentMessage[])
+    .filter((message) => !isPiHostSystemMessage(message));
   if (!willRetry) return retained;
   const final = retained.at(-1);
   return final?.role === "assistant" && (final.stopReason === "error" || final.stopReason === "length")
