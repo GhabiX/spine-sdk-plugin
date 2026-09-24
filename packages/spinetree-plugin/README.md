@@ -66,7 +66,7 @@ no automatic worker. The Pi adapter still awaits actual prompt completion.
 Dispatcher prompt text is JSON with this exact envelope:
 
 ```json
-{"schema":"spinetree.message/v1","receiptId":"mail-1","leaseId":"lease-1","to":"agent-b","from":"agent-a","message":"Please review the result"}
+{"schema":"spinetree.message/v1","receiptId":"mail-1","leaseId":"lease-1","bindingId":"binding-b","to":"agent-b","from":"agent-a","message":"Please review the result"}
 ```
 
 `from` is null when omitted. The message string is preserved. This envelope is

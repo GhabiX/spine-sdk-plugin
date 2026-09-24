@@ -204,8 +204,8 @@ test("dispatch propagates infrastructure errors and leaves acquired leases recov
   const agents = registry();
   t.mock.method(agents, "resolve", () => { throw failure; });
   await assert.rejects(dispatchSpineTreeMailbox({ registry: agents, mailbox, sessions }), actual => actual === failure);
-  assert.equal(mailbox.receipt(receipt.id).status, "leased");
-  assert.equal(mailbox.receipt(receipt.id).attempt, 1);
+  assert.equal(mailbox.receipt(receipt.id).status, "queued");
+  assert.equal(mailbox.receipt(receipt.id).attempt, 0);
   for (const limit of [0, -1, 0.5, Infinity]) {
     await assert.rejects(dispatchSpineTreeMailbox({ registry: agents, mailbox, sessions, limit }), TypeError);
   }
@@ -242,4 +242,36 @@ test("a late transport completion cannot overwrite a newer lease's delivered rec
   await assert.rejects(first, leaseConflict);
   assert.deepEqual(mailbox.receipt("mail-1"), winner);
   assert.equal(winner.status, "delivered");
+});
+
+test("dispatch fails closed when the recipient WorkingBinding changes before acknowledgement", async () => {
+  const mailbox = new MemorySpineTreeMailbox();
+  mailbox.enqueue(input("one"));
+  const first = { ...binding, bindingId: "binding-1", sessionId: "session-1" };
+  const replaced = { ...first, bindingId: "binding-2", sessionId: "session-2" };
+  let seen = false;
+  await assert.rejects(dispatchSpineTreeMailbox({
+    registry: {
+      async resolve() {
+        if (seen) return replaced;
+        seen = true;
+        return first;
+      },
+    },
+    mailbox,
+    sessions: { async request() { return { accepted: true }; } },
+  }), leaseConflict);
+  assert.equal(mailbox.receipt("mail-1").status, "leased");
+  assert.equal(mailbox.receipt("mail-1").bindingId, "binding-1");
+});
+
+test("a replaced WorkingBinding cannot observe or complete the previous delivery lease", async () => {
+  const mailbox = new MemorySpineTreeMailbox();
+  mailbox.enqueue(input("one"));
+  mailbox.enqueue(input("two"));
+  const first = mailbox.lease("mail-1", { agentId: "agent", sessionId: "session-1", bindingId: "binding-1" });
+  const second = mailbox.lease("mail-2", { agentId: "agent", sessionId: "session-1", bindingId: "binding-1" });
+  await assert.rejects(async () => mailbox.observed(first.id, first.leaseId, "binding-2"), leaseConflict);
+  await assert.rejects(async () => mailbox.delivered(second.id, second.leaseId, "binding-2"), leaseConflict);
+  assert.equal(mailbox.observed(first.id, first.leaseId, "binding-1").status, "observed");
 });
