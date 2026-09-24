@@ -12,7 +12,9 @@ entrypoints.
 
 The canonical semantics remain in CacheTree's `doc/FormularDef.md`. The sole
 current `spine-core` implementation remains in SpineCodex and is identified by
-`core-source.json`; this repository never carries a copied reducer.
+`core-source.json`; this repository never carries a copied reducer. The
+[release gate](doc/RELEASE.md) states which SpineTree paths are usable and
+which remain experimental.
 
 ## Packages
 
