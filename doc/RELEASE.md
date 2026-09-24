@@ -92,7 +92,7 @@ Usable when the caller opts in with explicit adapters and handles the typed
 failures covered above:
 
 - host owner conflict, namespace, dependency rollback, and dispose
-- ProjectTree read and expected-HEAD change through one Git `.spinetree` store
+- ProjectTree read and branch-revision change through one Git `.spinetree` store
 - queued mailbox send, request idempotency, lease fencing, and observe
 - explicit load selection
 

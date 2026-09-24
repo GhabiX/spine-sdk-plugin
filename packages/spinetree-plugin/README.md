@@ -33,17 +33,22 @@ The five input contracts are:
 | Tool | Required | Optional |
 | --- | --- | --- |
 | `spinetree_read` | `branch` | — |
-| `spinetree_change` | `expectedHead`, non-empty `changes` | — |
+| `spinetree_change` | non-empty `changes`; each item has `expectedRevision` | — |
 | `spinetree_send` | `to`, `message` | `from`, `requestId` |
 | `spinetree_observe` | `receiptId`, `agentId` | `leaseId` (required while leased) |
 | `spinetree_rejuvenate` | `parent`, `branch` | `request` |
 
-Strings must be non-empty. `change` items are `update` with `branch` and
-`attributes`, `move` with `branch` and `parent`, or `archive` with `branch`.
-Update attributes are limited to `goal` (string) and `constraints`, `skills`,
-`tools` (arrays). The model-facing schemas reject unrecognized fields;
-runtime checks still enforce state-dependent constraints such as CAS and
-receipt ownership. Host does not add a schema validation layer to `executeTool`.
+Strings must be non-empty. `change` items are `update` with `branch`,
+`expectedRevision` and `attributes`, `move` with `branch`, `expectedRevision`
+and `parent`, or `archive` with `branch` and `expectedRevision`.
+`expectedRevision` is `revision` from `spinetree_read` for that ProjectBranch.
+It changes only when that branch value changes. Registry, mailbox, and other
+store commits are retried inside the tool. A different branch value writes
+nothing and returns `applied: false` with the current branches. Update
+attributes are limited to `goal` (string) and `constraints`, `skills`, `tools`
+(arrays). The model-facing schemas reject unrecognized fields; runtime checks
+still enforce state-dependent constraints such as store CAS and receipt
+ownership. Host does not add a schema validation layer to `executeTool`.
 
 Without the required explicit adapters, a tool retains its input schema but its
 description states that it returns `contract-only`. No implicit state is created.

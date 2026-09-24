@@ -139,6 +139,7 @@ test("reads one fixed HEAD snapshot with inheritance, children, and binding", as
         { branch: "child", memory: "child memory", memoryVersion: 2 },
       ],
     },
+    revision: 0,
     children: ["leaf"],
     binding: snapshot.registry.current,
   });
@@ -205,14 +206,14 @@ test("changes an immutable memory snapshot with a strict HEAD CAS", async () => 
   await host.activateAll();
 
   const result = await host.executeTool("spinetree_change", {
-    expectedHead: initialHead,
     changes: [
-      { type: "update", branch: "child", attributes: { goal: "new", skills: ["testing"] } },
-      { type: "archive", branch: "child" },
+      { type: "update", branch: "child", expectedRevision: 0, attributes: { goal: "new", skills: ["testing"] } },
+      { type: "archive", branch: "child", expectedRevision: 0 },
     ],
   });
   assert.deepEqual(result, {
     schema: SPINETREE_CHANGE_RESULT_SCHEMA,
+    applied: true,
     parent: initialHead,
     head: "memory-1",
     changes: [
@@ -226,14 +227,48 @@ test("changes an immutable memory snapshot with a strict HEAD CAS", async () => 
   assert.equal(store.readSnapshot("memory-1").branches.child.goal, "new");
   assert.equal(store.readSnapshot("memory-1").branches.child.status, "archived");
 
+  const conflict = await host.executeTool("spinetree_change", {
+    changes: [{ type: "update", branch: "child", expectedRevision: 0, attributes: { goal: "stale" } }],
+  });
+  assert.equal(conflict.applied, false);
+  assert.equal(conflict.branches[0].revision, 1);
+  assert.equal(conflict.branches[0].goal, "new");
+  assert.equal(store.head(), "memory-1");
+  assert.equal(store.readSnapshot("memory-1").branches.child.goal, "new");
+  await host.dispose();
+});
+
+test("a store commit that does not change the branch does not invalidate its revision", async () => {
+  const snapshot = {
+    branches: {
+      root: { id: "root", parent: null, goal: "project", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "capped" },
+      child: { id: "child", parent: "root", goal: "old", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "capped" },
+    },
+    agents: {},
+  };
+  const store = new MemorySpineTreeStore(snapshot);
+  const host = new SpinePluginHost();
+  host.register(canonicalPlugin);
+  host.register(createSpineTreePlugin({ store }));
+  await host.activateAll();
+  const head = store.head();
+  const current = store.readSnapshot(head);
+  store.commitSnapshot(head, { ...current, registry: {} });
+  assert.notEqual(store.head(), head);
+  assert.equal((await host.executeTool("spinetree_read", { branch: "child" })).revision, 0);
+  const changed = await host.executeTool("spinetree_change", {
+    changes: [{ type: "update", branch: "child", expectedRevision: 0, attributes: { goal: "landed" } }],
+  });
+  assert.equal(changed.applied, true);
+  assert.equal(store.readSnapshot(changed.head).branches.child.goal, "landed");
+  assert.equal(store.readSnapshot(changed.head).branches.child.revision, 1);
   await assert.rejects(
     host.executeTool("spinetree_change", {
-      expectedHead: initialHead,
-      changes: [{ type: "update", branch: "root", attributes: { goal: "stale" } }],
+      changes: [{ type: "update", branch: "child", attributes: { goal: "missing" } }],
     }),
-    error => error instanceof SpineTreeChangeError && error.code === "stale-head",
+    error => error instanceof SpineTreeChangeError && error.code === "invalid-input",
   );
-  assert.equal(store.head(), "memory-1");
+  assert.equal(store.readSnapshot(store.head()).branches.child.goal, "landed");
   await host.dispose();
 });
 
@@ -361,6 +396,8 @@ test("persists immutable snapshots in an explicit `.spinetree` Git root with CAS
   assert.equal(store.head(), changed.head);
   assert.equal(store.readSnapshot(initialHead).branches.child.goal, "old");
   assert.equal(store.readSnapshot(changed.head).branches.child.goal, "new");
+  assert.equal(store.readSnapshot(changed.head).branches.child.revision, 1);
+  assert.equal(store.readSnapshot(changed.head).branches.root.revision, undefined);
 
   const reloaded = new GitSpineTreeStore(root);
   assert.equal(reloaded.head(), changed.head);

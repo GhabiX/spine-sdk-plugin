@@ -31,7 +31,8 @@ which remain experimental.
   tool becomes a real, fixed-HEAD read when the factory receives an explicit
   snapshot store or `.spinetree` root adapter. An explicit change-capable store
   also enables `spinetree_change`, which applies immutable ProjectBranch
-  updates through a required expected-HEAD CAS token. `GitSpineTreeStore`
+  updates through `expectedRevision` from `spinetree_read`. The Git store still
+  uses expected-HEAD CAS internally. `GitSpineTreeStore`
   provides the explicit filesystem adapter: `initialize()` creates a
   `.spinetree` Git repository, snapshots are committed as immutable
   `state.json` objects, and `git update-ref` performs expected-HEAD CAS. The

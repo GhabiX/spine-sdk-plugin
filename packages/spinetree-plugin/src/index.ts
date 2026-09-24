@@ -25,6 +25,8 @@ export interface SpineTreeBranch {
   readonly memorySource: unknown;
   readonly status: string;
   readonly scopeBinding?: SpineTreeScopeBinding;
+  /** Changes only when this ProjectBranch value changes. Absent means 0. */
+  readonly revision?: number;
   readonly [key: string]: unknown;
 }
 
@@ -74,6 +76,13 @@ export interface SpineTreeChangeResult {
   readonly parent: string;
   readonly head: string;
   readonly changes: readonly SpineTreeChange[];
+}
+
+/** The model named a ProjectBranch value that is no longer current. Nothing was written. */
+export interface SpineTreeBranchConflict {
+  readonly schema: typeof SPINETREE_CHANGE_RESULT_SCHEMA;
+  readonly applied: false;
+  readonly branches: readonly SpineTreeBranch[];
 }
 
 export interface SpineTreeChangeStore extends SpineTreeSnapshotStore {
@@ -726,8 +735,11 @@ export class MemorySpineTreeStore implements SpineTreeChangeStore {
       );
     }
     const parent = this.#head;
+    const previous = this.#snapshots.get(parent);
+    if (previous === undefined) throw new SpineTreeChangeError("unknown-head", `Unknown SpineTree HEAD ${parent}`);
+    const stamped = stampBranchRevisions(previous, snapshot);
     const head = `memory-${++this.#revision}`;
-    this.#snapshots.set(head, clone(snapshot));
+    this.#snapshots.set(head, clone(stamped));
     this.#head = head;
     return { parent, head };
   }
@@ -831,7 +843,7 @@ export class GitSpineTreeStore implements SpineTreeChangeStore {
         `SpineTree HEAD changed: expected ${expectedHead}, found ${currentHead}`,
       );
     }
-    const nextHead = this.#commitSnapshot(snapshot, message, expectedHead);
+    const nextHead = this.#commitSnapshot(stampBranchRevisions(this.readSnapshot(expectedHead), snapshot), message, expectedHead);
     try {
       runGit(this.root, ["update-ref", "HEAD", nextHead, expectedHead]);
     } catch (error) {
@@ -989,6 +1001,7 @@ export type SpineTreeBinding = SpineTreeAgentBinding;
 export interface SpineTreeReadResult {
   readonly schema: typeof SPINETREE_READ_RESULT_SCHEMA;
   readonly head: string;
+  readonly revision: number;
   readonly branch: SpineTreeBranch;
   readonly inherit: SpineTreeInheritance;
   readonly children: readonly string[];
@@ -1024,7 +1037,7 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
     ? ["read", "change", "send", "observe", "rejuvenate"]
     : spineTreeToolsFor(options.load)) as Array<keyof typeof toolContracts>;
   const store = options.store ?? options.root;
-  const changeStore = options.store !== undefined && isChangeStore(options.store) ? options.store : undefined;
+  const changeStore = options.store !== undefined && isCommitStore(options.store) ? options.store : undefined;
   const sendReady = options.registry !== undefined && options.mailbox !== undefined;
   const observeReady = sendReady && isMailboxReader(options.mailbox!);
   const rejuvenateReady = store !== undefined && options.registry !== undefined &&
@@ -1438,32 +1451,78 @@ function readTool(store: SpineTreeSnapshotStore): PluginTool {
   };
 }
 
-function changeTool(store: SpineTreeChangeStore): PluginTool {
+const MODEL_CHANGE_CAS_RETRIES = 8;
+
+function changeTool(store: SpineTreeSnapshotCommitStore): PluginTool {
   return {
     ...toolContracts.change,
-    execute: async (input: unknown) => {
-      const parsed = parseChangeInput(input);
-      return store.change(parsed.expectedHead, parsed.changes);
-    },
+    execute: async (input: unknown) => changeByBranchRevision(store, parseModelChanges(input)),
   };
 }
 
-function parseChangeInput(input: unknown): { expectedHead: string; changes: readonly SpineTreeChange[] } {
-  if (input === null || typeof input !== "object") {
+async function changeByBranchRevision(
+  store: SpineTreeSnapshotCommitStore,
+  changes: readonly { expectedRevision: number; change: SpineTreeChange }[],
+): Promise<(SpineTreeChangeResult & { applied: true }) | SpineTreeBranchConflict> {
+  let lastStale: unknown;
+  for (let attempt = 0; attempt < MODEL_CHANGE_CAS_RETRIES; attempt += 1) {
+    const head = await store.head();
+    const snapshot = await store.readSnapshot(head);
+    const conflicts: SpineTreeBranch[] = [];
+    for (const item of changes) {
+      const branch = snapshot.branches[item.change.branch];
+      if (branch === undefined) {
+        throw new SpineTreeChangeError("unknown-branch", `Unknown ProjectBranch ${item.change.branch}`);
+      }
+      if (revisionOf(branch) !== item.expectedRevision) {
+        const current = clone(branch) as DraftSpineTreeBranch;
+        current.revision = revisionOf(branch);
+        conflicts.push(current);
+      }
+    }
+    if (conflicts.length > 0) return { schema: SPINETREE_CHANGE_RESULT_SCHEMA, applied: false, branches: conflicts };
+    const draft = clone(snapshot);
+    applyChanges(draft, changes.map(item => item.change));
+    try {
+      const committed = await store.commitSnapshot(head, draft, "spinetree: change");
+      return {
+        schema: SPINETREE_CHANGE_RESULT_SCHEMA,
+        applied: true,
+        parent: head,
+        head: committed.head,
+        changes: changes.map(item => clone(item.change)),
+      };
+    } catch (error) {
+      if (!isStaleHead(error)) throw error;
+      lastStale = error;
+    }
+  }
+  throw lastStale ?? new SpineTreeChangeError("stale-head", "SpineTree snapshot changed during persistent mutation");
+}
+
+function parseModelChanges(input: unknown): readonly { expectedRevision: number; change: SpineTreeChange }[] {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
     throw new SpineTreeChangeError("invalid-input", "spinetree_change requires an object input");
   }
-  const value = input as { expectedHead?: unknown; changes?: unknown };
-  if (typeof value.expectedHead !== "string" || value.expectedHead.length === 0) {
-    throw new SpineTreeChangeError("invalid-input", "spinetree_change requires a non-empty expectedHead string");
-  }
+  const value = input as { changes?: unknown };
   if (!Array.isArray(value.changes) || value.changes.length === 0) {
     throw new SpineTreeChangeError("invalid-input", "spinetree_change requires a non-empty changes array");
   }
-  return { expectedHead: value.expectedHead, changes: value.changes as readonly SpineTreeChange[] };
+  return value.changes.map(item => {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      throw new SpineTreeChangeError("invalid-change", "Every change requires an object");
+    }
+    const record = item as { expectedRevision?: unknown };
+    if (typeof record.expectedRevision !== "number" || !Number.isSafeInteger(record.expectedRevision) || record.expectedRevision < 0) {
+      throw new SpineTreeChangeError("invalid-input", "spinetree_change requires a non-negative expectedRevision integer on every change");
+    }
+    const { expectedRevision, ...change } = record;
+    return { expectedRevision, change: change as SpineTreeChange };
+  });
 }
 
-function isChangeStore(store: SpineTreeSnapshotStore): store is SpineTreeChangeStore {
-  return typeof (store as Partial<SpineTreeChangeStore>).change === "function";
+function isCommitStore(store: SpineTreeSnapshotStore): store is SpineTreeSnapshotCommitStore {
+  return typeof (store as Partial<SpineTreeSnapshotCommitStore>).commitSnapshot === "function";
 }
 
 function isMailboxReader(mailbox: SpineTreeMailbox): mailbox is SpineTreeMailbox & SpineTreeMailboxReader {
@@ -1712,6 +1771,7 @@ async function readSnapshot(
   return {
     schema: SPINETREE_READ_RESULT_SCHEMA,
     head,
+    revision: revisionOf(branch),
     branch: clone(branch),
     inherit: inheritance(snapshot, branch),
     children: Object.values(snapshot.branches)
@@ -1810,7 +1870,48 @@ function parseSnapshot(value: unknown): SpineTreeSnapshot {
   ) {
     throw new SpineTreeGitStoreError("invalid-snapshot", "SpineTree snapshot requires branches and agents maps");
   }
-  return value as SpineTreeSnapshot;
+  const snapshot = value as SpineTreeSnapshot;
+  for (const branch of Object.values(snapshot.branches)) revisionOf(branch);
+  return snapshot;
+}
+
+function revisionOf(branch: { revision?: unknown }): number {
+  if (branch.revision === undefined) return 0;
+  if (typeof branch.revision !== "number" || !Number.isSafeInteger(branch.revision) || branch.revision < 0) {
+    throw new SpineTreeChangeError("invalid-change", "ProjectBranch revision must be a non-negative safe integer");
+  }
+  return branch.revision;
+}
+
+function stampBranchRevisions(previous: SpineTreeSnapshot, next: SpineTreeSnapshot): SpineTreeSnapshot {
+  const branches: Record<string, SpineTreeBranch> = {};
+  for (const [id, branch] of Object.entries(next.branches)) {
+    const old = previous.branches[id];
+    const revision = old === undefined
+      ? 0
+      : canonicalBranch(old) === canonicalBranch(branch) ? revisionOf(old) : revisionOf(old) + 1;
+    const stamped = clone(branch) as DraftSpineTreeBranch;
+    if (revision === 0) delete stamped.revision;
+    else stamped.revision = revision;
+    branches[id] = stamped;
+  }
+  return { ...next, branches };
+}
+
+function canonicalBranch(branch: SpineTreeBranch): string {
+  const value = clone(branch) as Record<string, unknown>;
+  delete value.revision;
+  return canonicalJson(value);
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(item => canonicalJson(item)).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(key =>
+      `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`,
+    ).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

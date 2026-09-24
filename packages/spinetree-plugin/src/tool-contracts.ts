@@ -4,7 +4,7 @@ const branch = { ...nonEmptyString, description: "ProjectBranch ID" };
 
 export const toolContracts = {
   read: {
-    description: "Read a ProjectBranch, inheritance, children and its active Agent binding from one fixed HEAD. Use binding.agentId as the send recipient; binding may be null.",
+    description: "Read a ProjectBranch, inheritance, children and its active Agent binding from one fixed HEAD. revision is the change token and changes only when that ProjectBranch value changes. Use binding.agentId as the send recipient; binding may be null.",
     parameters: {
       type: "object",
       properties: { branch },
@@ -13,11 +13,10 @@ export const toolContracts = {
     },
   },
   change: {
-    description: "Atomically apply a non-empty batch of ProjectBranch updates, moves or archives using expectedHead from read. A stale HEAD rejects the whole batch. Only goal/constraints/skills/tools are editable; root/live/cyclic moves and archives containing live work are rejected.",
+    description: "Atomically apply a non-empty batch of ProjectBranch updates, moves or archives. Each change carries expectedRevision from that branch's read result. Store commits that do not change the branch are retried internally. A different branch value writes nothing and returns applied:false with the current branches. Only goal/constraints/skills/tools are editable; root/live/cyclic moves and archives containing live work are rejected.",
     parameters: {
       type: "object",
       properties: {
-        expectedHead: { ...nonEmptyString, description: "HEAD returned by spinetree_read" },
         changes: {
           type: "array",
           minItems: 1,
@@ -28,6 +27,7 @@ export const toolContracts = {
                 properties: {
                   type: { const: "update", type: "string" },
                   branch,
+                  expectedRevision: { type: "integer", minimum: 0, description: "revision returned by spinetree_read for this branch" },
                   attributes: {
                     type: "object",
                     properties: {
@@ -39,26 +39,35 @@ export const toolContracts = {
                     additionalProperties: false,
                   },
                 },
-                required: ["type", "branch", "attributes"],
+                required: ["type", "branch", "expectedRevision", "attributes"],
                 additionalProperties: false,
               },
               {
                 type: "object",
-                properties: { type: { const: "move", type: "string" }, branch, parent: branch },
-                required: ["type", "branch", "parent"],
+                properties: {
+                  type: { const: "move", type: "string" },
+                  branch,
+                  expectedRevision: { type: "integer", minimum: 0, description: "revision returned by spinetree_read for this branch" },
+                  parent: branch,
+                },
+                required: ["type", "branch", "expectedRevision", "parent"],
                 additionalProperties: false,
               },
               {
                 type: "object",
-                properties: { type: { const: "archive", type: "string" }, branch },
-                required: ["type", "branch"],
+                properties: {
+                  type: { const: "archive", type: "string" },
+                  branch,
+                  expectedRevision: { type: "integer", minimum: 0, description: "revision returned by spinetree_read for this branch" },
+                },
+                required: ["type", "branch", "expectedRevision"],
                 additionalProperties: false,
               },
             ],
           },
         },
       },
-      required: ["expectedHead", "changes"],
+      required: ["changes"],
       additionalProperties: false,
     },
   },
