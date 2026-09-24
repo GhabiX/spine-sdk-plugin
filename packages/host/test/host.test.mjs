@@ -370,3 +370,84 @@ test("preserves the committed receipt when a post-commit sink fails", async () =
       error.receipt?.receiptId === "receipt-2",
   );
 });
+
+test("allows only the owning canonical plugin to publish an already committed record", async () => {
+  const sinkCalls = [];
+  let canonicalPublish;
+  let projectPublish;
+  const host = new SpinePluginHost();
+  host.register({
+    manifest: canonicalManifest,
+    activate(context) {
+      canonicalPublish = context.effects.publishCommitted;
+      context.effects.registerPostCommitSink({
+        id: "typed-import",
+        accepts: ["spine.scope.commit"],
+        apply(record, deliveryId) {
+          sinkCalls.push({ record, deliveryId });
+        },
+      });
+    },
+  });
+  host.register(projectPlugin({
+    activate(context) {
+      projectPublish = context.effects.publishCommitted;
+    },
+  }));
+
+  await host.activateAll();
+  const committed = {
+    schema: "spine-tree-post-commit/v1",
+    effectType: "spine.scope.commit",
+    receipt: {
+      schema: "spine-tree-receipt/v1",
+      receiptId: "receipt-publish",
+      operationId: "operation-publish",
+      effectId: "effect-publish",
+      targetOwner: "spine.canonical",
+      status: "committed",
+      binding: { bindingId: "binding-publish", epoch: 3 },
+    },
+    record: { source: "canonical" },
+    projection: { cursor: [0, 1] },
+    binding: { bindingId: "binding-publish", epoch: 3 },
+  };
+  await canonicalPublish(committed);
+  await assert.rejects(
+    projectPublish(committed),
+    (error) => error instanceof SpinePluginHostError && error.code === "effect-owner",
+  );
+  assert.deepEqual(sinkCalls.map(({ deliveryId }) => deliveryId), [
+    "typed-import:spine.canonical:operation-publish",
+  ]);
+  assert.equal(Object.isFrozen(sinkCalls[0].record), true);
+});
+
+test("publishing a committed record after dispose is rejected", async () => {
+  let publish;
+  const host = new SpinePluginHost();
+  host.register({
+    manifest: canonicalManifest,
+    activate(context) {
+      publish = context.effects.publishCommitted;
+    },
+  });
+  await host.activateAll();
+  await host.dispose();
+  await assert.rejects(
+    publish({
+      schema: "spine-tree-post-commit/v1",
+      effectType: "spine.scope.commit",
+      receipt: {
+        schema: "spine-tree-receipt/v1",
+        receiptId: "receipt-after-dispose",
+        operationId: "operation-after-dispose",
+        effectId: "effect-after-dispose",
+        targetOwner: "spine.canonical",
+        status: "committed",
+      },
+      record: {},
+    }),
+    (error) => error instanceof SpinePluginHostError && error.code === "host-started",
+  );
+});

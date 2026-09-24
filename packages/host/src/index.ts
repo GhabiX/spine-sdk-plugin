@@ -88,6 +88,16 @@ export interface PlatformEffect {
   readonly payload: unknown;
 }
 
+export interface CommitBindingRef {
+  readonly bindingId: string;
+  readonly epoch: number;
+  readonly leaseId?: string;
+  readonly agentId?: string;
+  readonly sessionId?: string;
+  readonly branch?: string;
+  readonly scopeCursor?: readonly number[];
+}
+
 export interface CommitReceipt {
   readonly schema: typeof SPINE_TREE_RECEIPT_SCHEMA;
   readonly receiptId: string;
@@ -97,7 +107,7 @@ export interface CommitReceipt {
   readonly status: "committed" | "rejected" | "failed";
   readonly commitId?: string;
   readonly sequence?: number;
-  readonly binding?: { readonly bindingId: string; readonly epoch: number };
+  readonly binding?: CommitBindingRef;
   readonly result?: unknown;
   readonly error?: { readonly code: string; readonly retryable: boolean; readonly message: string };
 }
@@ -127,6 +137,8 @@ export interface PostCommitSink {
 
 export interface PluginEffects {
   submit(effect: PlatformEffect): Promise<CommitReceipt>;
+  /** Publish a record that this plugin has already durably committed. */
+  publishCommitted(record: PostCommitRecord): Promise<void>;
   registerCommitter(owner: string, committer: OwnerCommitter): void;
   registerPostCommitSink(sink: PostCommitSink): () => void;
 }
@@ -387,13 +399,13 @@ export class SpinePluginHost {
           return unsubscribe;
         },
       },
-      effects: this.#effectsFor(manifest.id, manifest, resources),
+      effects: this.#effectsFor(plugin, manifest, resources),
       sessions: this.#sessions,
     };
   }
 
   #effectsFor(
-    pluginId: string,
+    plugin: SpinePlugin,
     manifest: PluginManifest,
     resources: Array<() => void>,
   ): PluginEffects {
@@ -404,12 +416,13 @@ export class SpinePluginHost {
     };
     return {
       submit: (effect) => this.#submitEffect(effect),
+      publishCommitted: (record) => this.#publishCommitted(plugin.manifest.id, plugin, manifest, record),
       registerCommitter: (owner, commit) => {
         assertActivation();
         if (!(manifest.owns ?? []).includes(owner)) {
           throw new SpinePluginHostError(
             "effect-owner",
-            `Plugin ${pluginId} does not own effect target ${owner}`,
+            `Plugin ${plugin.manifest.id} does not own effect target ${owner}`,
           );
         }
         if (this.#committers.has(owner)) {
@@ -418,7 +431,7 @@ export class SpinePluginHost {
         if (typeof commit !== "function") {
           throw new SpinePluginHostError("committer-invalid", `Effect committer for ${owner} is not callable`);
         }
-        const entry = { pluginId, commit };
+        const entry = { pluginId: plugin.manifest.id, commit };
         this.#committers.set(owner, entry);
         resources.push(() => {
           if (this.#committers.get(owner) === entry) this.#committers.delete(owner);
@@ -430,7 +443,7 @@ export class SpinePluginHost {
         if (this.#postCommitSinks.has(sink.id)) {
           throw new SpinePluginHostError("sink-conflict", `Post-commit sink ${sink.id} is already registered`);
         }
-        const entry = { pluginId, sink };
+        const entry = { pluginId: plugin.manifest.id, sink };
         this.#postCommitSinks.set(sink.id, entry);
         const unsubscribe = () => {
           if (this.#postCommitSinks.get(sink.id) === entry) this.#postCommitSinks.delete(sink.id);
@@ -457,19 +470,45 @@ export class SpinePluginHost {
     validateCommitResult(effect, result);
     const receipt = deepFreeze(result.receipt);
     if (receipt.status !== "committed") return receipt;
-    const postCommit = deepFreeze({
+    const postCommit = deepFreeze(structuredClone({
       schema: SPINE_TREE_POST_COMMIT_SCHEMA,
       effectType: effect.effectType,
       receipt,
       record: result.record,
       ...(result.projection === undefined ? {} : { projection: result.projection }),
       ...(receipt.binding === undefined ? {} : { binding: receipt.binding }),
-    });
+    }));
+    await this.#dispatchPostCommit(postCommit);
+    return receipt;
+  }
+
+  async #publishCommitted(
+    pluginId: string,
+    plugin: SpinePlugin,
+    manifest: PluginManifest,
+    record: PostCommitRecord,
+  ): Promise<void> {
+    if (this.#disposed || this.#active.get(pluginId) !== plugin) {
+      throw new SpinePluginHostError("host-started", "Committed records can only be published by an active plugin");
+    }
+    validatePostCommitRecord(record);
+    if (!(manifest.owns ?? []).includes(record.receipt.targetOwner)) {
+      throw new SpinePluginHostError(
+        "effect-owner",
+        `Plugin ${pluginId} does not own committed record target ${record.receipt.targetOwner}`,
+      );
+    }
+    const frozen = deepFreeze(structuredClone(record));
+    await this.#dispatchPostCommit(frozen);
+  }
+
+  async #dispatchPostCommit(record: PostCommitRecord): Promise<void> {
+    const receipt = record.receipt;
     for (const { sink } of this.#postCommitSinks.values()) {
-      if (!sink.accepts.includes(effect.targetOwner) && !sink.accepts.includes(effect.effectType)) continue;
-      const deliveryId = `${sink.id}:${effect.targetOwner}:${effect.operationId}`;
+      if (!sink.accepts.includes(receipt.targetOwner) && !sink.accepts.includes(record.effectType)) continue;
+      const deliveryId = `${sink.id}:${receipt.targetOwner}:${receipt.operationId}`;
       try {
-        await sink.apply(postCommit, deliveryId);
+        await sink.apply(record, deliveryId);
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
         throw new SpinePluginHostError(
@@ -479,7 +518,6 @@ export class SpinePluginHost {
         );
       }
     }
-    return receipt;
   }
 
   #cleanup(pluginId: string): void {
@@ -559,6 +597,33 @@ function validatePostCommitSink(sink: PostCommitSink): void {
     typeof sink.apply !== "function"
   ) {
     throw new SpinePluginHostError("sink-invalid", "Post-commit sink requires id, accepts and apply");
+  }
+}
+
+function validatePostCommitRecord(record: PostCommitRecord): void {
+  if (
+    record === null || typeof record !== "object" ||
+    record.schema !== SPINE_TREE_POST_COMMIT_SCHEMA ||
+    typeof record.effectType !== "string" || record.effectType.length === 0 ||
+    !Object.prototype.hasOwnProperty.call(record, "record")
+  ) {
+    throw new SpinePluginHostError("post-commit-record", "Malformed committed record");
+  }
+  const receipt = record.receipt;
+  if (
+    receipt === null || typeof receipt !== "object" ||
+    receipt.schema !== SPINE_TREE_RECEIPT_SCHEMA ||
+    receipt.status !== "committed" ||
+    typeof receipt.receiptId !== "string" || receipt.receiptId.length === 0 ||
+    typeof receipt.operationId !== "string" || receipt.operationId.length === 0 ||
+    typeof receipt.effectId !== "string" || receipt.effectId.length === 0 ||
+    typeof receipt.targetOwner !== "string" || receipt.targetOwner.length === 0
+  ) {
+    throw new SpinePluginHostError("post-commit-receipt", "Committed record requires a valid committed receipt");
+  }
+  if (record.binding !== undefined && receipt.binding !== undefined &&
+      JSON.stringify(record.binding) !== JSON.stringify(receipt.binding)) {
+    throw new SpinePluginHostError("post-commit-binding", "Committed record binding does not match its receipt");
   }
 }
 

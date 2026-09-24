@@ -13,7 +13,12 @@ import {
   type SessionBeforeCompactEvent,
   type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import type { PluginManifest, SpinePlugin } from "@spinejit/spine-host";
+import type {
+  CommitBindingRef,
+  PluginManifest,
+  PostCommitRecord,
+  SpinePlugin,
+} from "@spinejit/spine-host";
 import {
   createNodeSpineRuntime,
   type NodeSpineRuntime,
@@ -94,6 +99,11 @@ export type PiChildInvocationFactory = (
   context: PiChildInvocationContext,
 ) => PiChildInvocation | Promise<PiChildInvocation>;
 
+export interface PiSamplingCommitPublication {
+  readonly effectType: string;
+  readonly binding?: CommitBindingRef;
+}
+
 export interface CreatePiExtensionOptions {
   runtimeFactory?: PiExtensionRuntimeFactory;
   childInvocation?: PiChildInvocationFactory;
@@ -105,6 +115,7 @@ export interface CreatePiExtensionOptions {
     runtime: NodeSpineRuntime;
     entries: readonly SessionEntry[];
   }) => Promise<void> | void;
+  onSamplingCommitPublication?: (info: { sessionId: string; commit: FinishSamplingResult; entries: readonly SessionEntry[] }) => Promise<PiSamplingCommitPublication | void> | PiSamplingCommitPublication | void;
   onSamplingCommit?: (info: { sessionId: string; commit: FinishSamplingResult; entries: readonly SessionEntry[] }) => Promise<void> | void;
 }
 
@@ -147,15 +158,19 @@ export function createPiExtension(options: CreatePiExtensionOptions = {}): Exten
 export function createPiSpinePlugin(options: CreatePiSpinePluginOptions): SpinePlugin {
   return {
     manifest: SPINE_CANONICAL_PLUGIN_MANIFEST,
-    activate() {
-      activatePiExtension(options.pi, options);
+    activate(context) {
+      activatePiExtension(options.pi, options, context?.effects?.publishCommitted);
     },
   };
 }
 
 export default createPiExtension();
 
-function activatePiExtension(pi: ExtensionAPI, options: CreatePiExtensionOptions): void {
+function activatePiExtension(
+  pi: ExtensionAPI,
+  options: CreatePiExtensionOptions,
+  publishCommitted?: (record: PostCommitRecord) => Promise<void>,
+): void {
   const runtimeFactory = options.runtimeFactory ?? {
     create: (thread: string) => createNodeSpineRuntime({ thread, features: ["jit", "spawn"] }),
   };
@@ -181,7 +196,15 @@ function activatePiExtension(pi: ExtensionAPI, options: CreatePiExtensionOptions
     if (slot.current === null || slot.fault !== null) return;
     slot.treeDisplay.offer(request, slot.generation, slot.current.latestContext.projection);
   });
-  registerLifecycleHandlers(pi, slot, runtimeFactory, options.onSessionReady, options.onSamplingCommit);
+  registerLifecycleHandlers(
+    pi,
+    slot,
+    runtimeFactory,
+    options.onSessionReady,
+    options.onSamplingCommitPublication,
+    options.onSamplingCommit,
+    publishCommitted,
+  );
 }
 
 function registerSpineTools(
@@ -401,7 +424,9 @@ function registerLifecycleHandlers(
   slot: MutableSessionSlot,
   runtimeFactory: PiExtensionRuntimeFactory,
   onSessionReady?: CreatePiExtensionOptions["onSessionReady"],
+  onSamplingCommitPublication?: CreatePiExtensionOptions["onSamplingCommitPublication"],
   onSamplingCommit?: CreatePiExtensionOptions["onSamplingCommit"],
+  publishCommitted?: (record: PostCommitRecord) => Promise<void>,
 ): void {
   let childMode = false;
   pi.on("session_start", async (_event, ctx) => {
@@ -506,8 +531,54 @@ function registerLifecycleHandlers(
         message: event.message as PiAgentMessage,
         aborted: ctx.signal?.aborted === true,
       });
-      if (commit === null) return;
-      await onSamplingCommit?.({ sessionId: ctx.sessionManager.getSessionId(), commit, entries: ctx.sessionManager.getBranch() });
+      if (commit === null || commit.type !== "committed") return;
+      const commitInfo = {
+        sessionId: ctx.sessionManager.getSessionId(),
+        commit,
+        entries: ctx.sessionManager.getBranch(),
+      };
+      const publication = await onSamplingCommitPublication?.(commitInfo);
+      if (publication !== undefined) {
+        if (publishCommitted === undefined) {
+          throw new Error("Canonical committed publication requires an active Host owner boundary");
+        }
+        const rawRecord = commit.record;
+        if (rawRecord.type !== "sampling_commit") {
+          renderSpineTree(ctx, slot, await requireSession(slot));
+          return;
+        }
+        const sampling = rawRecord.record;
+        const operationId = [
+          "spine.canonical",
+          ctx.sessionManager.getSessionId(),
+          sampling.commit_id.thread,
+          sampling.epoch,
+          sampling.commit_id.value,
+        ].join(":");
+        await publishCommitted({
+          schema: "spine-tree-post-commit/v1",
+          effectType: publication.effectType,
+          receipt: {
+            schema: "spine-tree-receipt/v1",
+            receiptId: `receipt:${operationId}`,
+            operationId,
+            effectId: commit.transactionId,
+            targetOwner: "spine.canonical",
+            status: "committed",
+            commitId: sampling.commit_id.value,
+            ...(publication.binding === undefined ? {} : { binding: publication.binding }),
+          },
+          record: {
+            schema: "spine.canonical.sampling-commit/v1",
+            sessionId: ctx.sessionManager.getSessionId(),
+            transactionId: commit.transactionId,
+            record: sampling,
+          },
+          projection: commit.projection,
+          ...(publication.binding === undefined ? {} : { binding: publication.binding }),
+        });
+      }
+      await onSamplingCommit?.(commitInfo);
       renderSpineTree(ctx, slot, await requireSession(slot));
     });
   });

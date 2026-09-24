@@ -120,6 +120,30 @@ test("receipt replay is write-free after reload; changed selections and stale re
   assert.equal(store.head(), head);
 });
 
+test("historical receipt replay stays write-free after Agent/session reattachment; forged binding is rejected", async t => {
+  const commit = await canonical(t);
+  const opened = await commit({ type: "open", summary: "reattach" });
+  const working = {
+    agentId: "a", sessionId: "pi-a", branch: "root", status: "running",
+    bindingId: "binding-a", leaseId: "lease-a", operationId: "operation-a",
+    epoch: opened.record.epoch, scopeCursor: [...opened.projection.cursor],
+  };
+  const store = new MemorySpineTreeStore({ branches: { root }, agents: {}, registry: { a: working } });
+  const receipt = { store, ...opened, binding: working, selections: [{ nodeId: opened.projection.cursor, branch: "root" }] };
+  const first = await commitSpineTreeScopes(receipt);
+  const rebound = snapshot(store);
+  rebound.registry = {
+    b: { ...working, agentId: "b", sessionId: "pi-b", bindingId: "binding-b", leaseId: "lease-b" },
+  };
+  const reboundCommit = await store.commitSnapshot(store.head(), rebound, "test: reattach Agent");
+  const replayed = await commitSpineTreeScopes(receipt);
+  assert.equal(replayed.replayed, true);
+  assert.equal(replayed.head, reboundCommit.head);
+  const forged = { ...receipt, binding: { ...working, bindingId: "forged-binding", leaseId: "forged-lease" } };
+  await assert.rejects(commitSpineTreeScopes(forged), { code: "conflicting-replay" });
+  assert.equal(store.head(), reboundCommit.head);
+});
+
 test("one-to-one alignment reuses generated UUIDs and resolves nested parents in one batch", async t => {
   const commit = await canonical(t);
   const store = new MemorySpineTreeStore(initial());
@@ -293,4 +317,28 @@ test("mapped live ownership blocks exclusive registration, while capped history 
   const read = await readHost(t, store);
   assert.equal((await read(id)).binding, null);
   assert.equal((await registry.resolve("a")).status, "running");
+});
+
+test("WorkingBinding import keeps the Agent home branch live when a mapped Scope closes", async t => {
+  const commit = await canonical(t);
+  const opened = await commit({ type: "open", summary: "home scope" });
+  const working = {
+    agentId: "a", sessionId: "pi-a", branch: "root", status: "running",
+    bindingId: "binding-a", leaseId: "lease-a", operationId: "operation-a",
+    epoch: opened.record.epoch, scopeCursor: [...opened.projection.cursor],
+  };
+  const store = new MemorySpineTreeStore({ branches: { root }, agents: {}, registry: { a: working } });
+  const registry = new GitSpineTreeAgentRegistry(store);
+  const openedReceipt = { store, ...opened, binding: working, selections: [{ nodeId: opened.projection.cursor, branch: "root" }] };
+  await commitSpineTreeScopes(openedReceipt);
+  const closed = await commit({ type: "close", memory: "home evidence" });
+  const closedBinding = { ...working, epoch: closed.record.epoch, scopeCursor: [...closed.projection.cursor] };
+  await registry.updateWorking("a", working.leaseId, closedBinding);
+  await commitSpineTreeScopes({ store, ...closed, binding: closedBinding, selections: [] });
+  const current = snapshot(store);
+  assert.equal(current.branches.root.status, "live");
+  const capped = Object.values(current.branches).find(branch => branch.id !== "root" && branch.status === "capped");
+  assert.ok(capped);
+  assert.equal(capped.parent, "root");
+  assert.match(JSON.stringify(capped.memory), /home evidence/);
 });

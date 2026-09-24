@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { EpochOrdinalId, NamespacedId, NodeSnapshot, SamplingCommit, SpineProjection } from "@spinejit/spine-sdk";
 import { SpineTreeChangeError } from "./index.js";
-import type { SpineTreeBranch, SpineTreeSnapshot, SpineTreeSnapshotCommitStore } from "./index.js";
+import type { SpineTreeBranch, SpineTreeSnapshot, SpineTreeSnapshotCommitStore, SpineTreeWorkingBinding } from "./index.js";
 
 export interface SpineTreeScopeBinding {
   readonly agentId: string;
@@ -39,10 +39,21 @@ export interface SpineTreeScopeWatermark {
   readonly selections: readonly SpineTreeScopeMapping[];
 }
 
+export interface SpineTreeScopeWorkingBinding {
+  readonly bindingId: string;
+  readonly leaseId: string;
+  readonly agentId: string;
+  readonly sessionId: string;
+  readonly branch: string;
+  readonly epoch: number;
+  readonly scopeCursor: readonly number[];
+}
+
 export interface SpineTreeScopeCommitInput {
   readonly store: SpineTreeSnapshotCommitStore;
   readonly agentId: string;
   readonly sessionId: string;
+  readonly binding?: SpineTreeScopeWorkingBinding;
   readonly transactionId: string;
   /** Public result of an already committed canonical sampling transaction. */
   readonly record: SamplingCommit;
@@ -96,6 +107,7 @@ export async function commitSpineTreeScopes(input: SpineTreeScopeCommitInput): P
         record.post_boundary.ordinal < prior.postBoundary || record.previous_commit_id?.value !== prior.commitId
       ))) throw new SpineTreeScopeError("stale-commit", "Cannot import an older or divergent canonical commit");
     }
+    validateSnapshotBinding(snapshot, fixed);
     const selections: readonly SpineTreeAlignedSelection[] = fixed.selections === undefined
       ? deriveAlignedSelections(snapshot, fixed)
       : fixed.selections;
@@ -127,11 +139,36 @@ function validateReceipt(input: Receipt): void {
     projection.last_boundary !== record.post_boundary.ordinal) {
     throw new SpineTreeScopeError("invalid-commit", "Expected a matching committed sampling record and projection");
   }
+  if (input.binding !== undefined && (
+    input.binding.agentId !== input.agentId || input.binding.sessionId !== input.sessionId ||
+    input.binding.epoch !== record.epoch ||
+    JSON.stringify(input.binding.scopeCursor) !== JSON.stringify(projection.cursor)
+  )) {
+    throw new SpineTreeScopeError("binding-conflict", "WorkingBinding does not match the committed Scope projection");
+  }
   if (input.alignment !== undefined && input.alignment !== "one-to-one") {
     throw new SpineTreeScopeError("invalid-selection", "Unknown Scope alignment policy");
   }
   if (input.selections === undefined && input.alignment !== "one-to-one") {
     throw new SpineTreeScopeError("invalid-selection", "Provide explicit selections or one-to-one alignment");
+  }
+}
+
+function validateSnapshotBinding(snapshot: SpineTreeSnapshot, input: Receipt): void {
+  const binding = input.binding;
+  if (binding === undefined) return;
+  const current = snapshot.registry?.[binding.agentId] as SpineTreeWorkingBinding | undefined;
+  const branch = snapshot.branches[binding.branch];
+  if (current === undefined || current.status !== "running" ||
+      current.sessionId !== binding.sessionId || current.branch !== binding.branch ||
+      !("bindingId" in current) || current.bindingId !== binding.bindingId ||
+      !("leaseId" in current) || current.leaseId !== binding.leaseId ||
+      !("epoch" in current) || current.epoch !== binding.epoch ||
+      !Array.isArray(current.scopeCursor) || JSON.stringify(current.scopeCursor) !== JSON.stringify(binding.scopeCursor)) {
+    throw new SpineTreeScopeError("binding-conflict", "ProjectTree snapshot does not hold the active WorkingBinding");
+  }
+  if (branch === undefined || branch.status !== "live") {
+    throw new SpineTreeScopeError("binding-conflict", "WorkingBinding must point to a live ProjectBranch");
   }
 }
 
@@ -235,7 +272,22 @@ function mapScopes(snapshot: SpineTreeSnapshot, input: MappingReceipt): SpineTre
         (parentSelection !== undefined && parentSelection !== mapped.parent) || mapped.scopeBinding?.agentId !== agentId) {
         throw new SpineTreeScopeError("binding-conflict", "Scope mapping is archived or belongs to a different ProjectBranch or Agent");
       }
-      branch = mapped;
+      if (input.binding !== undefined && mapped.id === agent.branch && agent.status === "running" && isTerminalNode(node)) {
+        // The Agent's home branch is its live execution lease. A terminal
+        // Scope cannot cap that branch; materialize the Scope as a child and
+        // keep the home branch available for the next Agent turn.
+        const { scopeBinding: _scopeBinding, ...home } = mapped;
+        branches[mapped.id] = home;
+        branch = {
+          ...home,
+          id: randomUUID(),
+          parent: mapped.id,
+          goal: node.summary ?? home.goal,
+          status: "live",
+        };
+      } else {
+        branch = mapped;
+      }
     } else if (branchSelection !== undefined) {
       const existing = branches[branchSelection];
       if (existing === undefined) throw new SpineTreeScopeError("unknown-branch", `Unknown ProjectBranch ${branchSelection}`);
@@ -274,9 +326,30 @@ function mapScopes(snapshot: SpineTreeSnapshot, input: MappingReceipt): SpineTre
       throw new SpineTreeScopeError("unsupported-scope", "A live mapped scope disappeared; epoch/fork migration requires an explicit adapter");
     }
     if (bound.agentId !== agentId) throw new SpineTreeScopeError("binding-conflict", "A live scope belongs to a different Agent");
+    if (input.binding !== undefined && branch.id === agent.branch && agent.status === "running" && isTerminalNode(node)) {
+      // A close of the current home Scope must not end the Agent's working
+      // ProjectBranch. Move the terminal memory to a child branch instead.
+      const { scopeBinding: _scopeBinding, ...home } = branch;
+      branches[branch.id] = home;
+      const child = {
+        ...home,
+        id: randomUUID(),
+        parent: branch.id,
+        goal: node.summary ?? home.goal,
+        scopeBinding: structuredClone(bound),
+        status: "live",
+      };
+      branches[child.id] = importNode(child, node, input);
+      selections.push({ nodeId: [...bound.nodeId], branch: child.id });
+      continue;
+    }
     branches[branch.id] = importNode(branch, node, input);
   }
   return selections;
+}
+
+function isTerminalNode(node: NodeSnapshot): boolean {
+  return node.status !== "Live" && node.status !== "Opened";
 }
 
 function matchesScope(bound: SpineTreeScopeBinding | undefined, sessionId: string, thread: string, epoch: number, nodeId: readonly number[]): boolean {
