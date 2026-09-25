@@ -865,6 +865,52 @@ test("Pi exec rejection remains host-fatal and does not open the recovery gate",
   assert.equal(selectCalls, 0);
 });
 
+test("root close and next return to the model without aborting", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  createPiExtension()(pi.api);
+
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit("message_end", { type: "message_end", message: user("request") }, ctx.context);
+  await pi.emit(
+    "before_provider_request",
+    { type: "before_provider_request", payload: { model: "test", input: ["request"] } },
+    ctx.context,
+  );
+  const closeAdmission = await pi.emit(
+    "tool_call",
+    { type: "tool_call", toolCallId: "close-1", toolName: "spine_close", input: { memory: "done" } },
+    ctx.context,
+  );
+  const nextAdmission = await pi.emit(
+    "tool_call",
+    {
+      type: "tool_call",
+      toolCallId: "next-1",
+      toolName: "spine_next",
+      input: { goal: "continue", memory: "done" },
+    },
+    ctx.context,
+  );
+  assert.deepEqual(closeAdmission, {
+    block: true,
+    reason: "no open Spine node is available to close",
+  });
+  assert.deepEqual(nextAdmission, {
+    block: true,
+    reason: "no open Spine node is available to close",
+  });
+  assert.equal(ctx.aborts, 0);
+
+  const openAdmission = await pi.emit(
+    "tool_call",
+    { type: "tool_call", toolCallId: "open-1", toolName: "spine_open", input: { goal: "inspect" } },
+    ctx.context,
+  );
+  assert.equal(openAdmission, undefined);
+  assert.equal(ctx.aborts, 0);
+});
+
 test("WASM-backed extension completes one Pi Open sampling transaction", async () => {
   const pi = mockPi();
   const ctx = extensionContext();
@@ -1087,6 +1133,7 @@ test("Pi overflow retry keeps an earlier error assistant after the null edit", a
         messagesToSummarize: [earlierError, retryTarget],
         turnPrefixMessages: [],
         tokensBefore: 12,
+        settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
       },
       branchEntries: entries,
       signal: new AbortController().signal,
@@ -1101,6 +1148,199 @@ test("Pi overflow retry keeps an earlier error assistant after the null edit", a
   assert.deepEqual(compact.data.replacementMessages[1].content, [{ type: "text", text: "keep earlier" }]);
   assert.equal(JSON.stringify(compact.data.replacementMessages).includes("drop final"), false);
   assert.deepEqual(compact.data.replacementEntryIds, [null, "earlier"]);
+});
+
+test("Pi compaction summarizes the published model context plus one request", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const visible = user("model-visible-turn");
+  const rawOnly = user("RAW-TRANSCRIPT-NOT-MODEL-CONTEXT");
+  const entry = { type: "message", id: "visible", parentId: null, timestamp: "1", message: visible };
+  let requestMessages;
+  let requestOptions;
+  ctx.context.model = { provider: "test", id: "test-model", maxTokens: 131072 };
+  ctx.context.modelRegistry = {
+    async complete(_model, context, options) {
+      requestMessages = context.messages;
+      requestOptions = options;
+      return { content: [{ type: "text", text: "context summary" }] };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: {
+        firstKeptEntryId: "visible",
+        messagesToSummarize: [rawOnly],
+        turnPrefixMessages: [],
+        tokensBefore: 12,
+        settings: { enabled: true, reserveTokens: 52429, keepRecentTokens: 20000 },
+        previousSummary: "earlier summary",
+      },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "threshold",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.equal(result.compaction.summary, "context summary");
+  const rendered = JSON.stringify(requestMessages);
+  assert.equal(rendered.includes("model-visible-turn"), true);
+  assert.equal(rendered.includes("RAW-TRANSCRIPT-NOT-MODEL-CONTEXT"), false);
+  assert.equal(rendered.includes("Conversation:"), false);
+  assert.ok(requestMessages.length > 1);
+  const instruction = requestMessages.at(-1);
+  assert.equal(instruction.role, "user");
+  assert.match(instruction.content[0].text, /^Create a concise structured continuation summary/);
+  assert.match(instruction.content[0].text, /earlier summary/);
+  assert.equal(requestOptions.maxTokens, 41943);
+  assert.equal(requestMessages.some((message) => message.role === "system"), false);
+  assert.equal(ctx.aborts, 0);
+});
+
+test("Pi compaction passes the current tool declarations with the model context", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const bash = { name: "bash", description: "run", parameters: { type: "object" } };
+  const gone = { name: "old", description: "gone", parameters: { type: "object" } };
+  const declared = {
+    role: "system",
+    content: "",
+    toolsAdded: [bash, gone],
+    timestamp: 1,
+  };
+  const removed = {
+    role: "system",
+    content: "",
+    toolsRemoved: [{ name: "old" }],
+    timestamp: 2,
+  };
+  const visible = user("model-visible-turn");
+  const entries = [
+    { type: "message", id: "tools", parentId: null, timestamp: "1", message: declared },
+    { type: "message", id: "remove", parentId: "tools", timestamp: "2", message: removed },
+    { type: "message", id: "visible", parentId: "remove", timestamp: "3", message: visible },
+  ];
+  let requestContext;
+  ctx.context.model = { provider: "test", id: "test-model", maxTokens: 131072 };
+  ctx.context.modelRegistry = {
+    async complete(_model, context) {
+      requestContext = context;
+      return { content: [{ type: "text", text: "context summary" }] };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => entries;
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: {
+        firstKeptEntryId: "visible",
+        messagesToSummarize: [],
+        turnPrefixMessages: [],
+        tokensBefore: 12,
+        settings: { enabled: true, reserveTokens: 52429, keepRecentTokens: 20000 },
+      },
+      branchEntries: entries,
+      signal: new AbortController().signal,
+      reason: "threshold",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.equal(result.compaction.summary, "context summary");
+  assert.deepEqual(requestContext.tools, [bash]);
+  assert.equal(JSON.stringify(requestContext.messages).includes("model-visible-turn"), true);
+  assert.equal(requestContext.messages.some((message) => message.role === "system"), false);
+  assert.equal(ctx.aborts, 0);
+});
+
+test("Pi compaction summary output cap follows the native reserve formula", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const visible = user("visible");
+  const entry = { type: "message", id: "visible", parentId: null, timestamp: "1", message: visible };
+  let requestOptions;
+  ctx.context.model = { provider: "test", id: "test-model", maxTokens: 100 };
+  ctx.context.modelRegistry = {
+    async complete(_model, _context, options) {
+      requestOptions = options;
+      return { content: [{ type: "text", text: "capped summary" }] };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [entry];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: {
+        firstKeptEntryId: "visible",
+        messagesToSummarize: [],
+        turnPrefixMessages: [],
+        tokensBefore: 12,
+        settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
+      },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "threshold",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.equal(result.compaction.summary, "capped summary");
+  assert.equal(requestOptions.maxTokens, 100);
+  assert.equal(ctx.aborts, 0);
+});
+
+test("Pi compaction previews the current model context before summarizing", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const arrived = user("just-arrived");
+  const entry = { type: "message", id: "arrived", parentId: null, timestamp: "1", message: arrived };
+  let requestMessages;
+  ctx.context.model = { provider: "test", id: "test-model" };
+  ctx.context.modelRegistry = {
+    async complete(_model, context) {
+      requestMessages = context.messages;
+      return { content: [{ type: "text", text: "fresh summary" }] };
+    },
+  };
+  ctx.context.sessionManager.getBranch = () => [];
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit("message_end", { type: "message_end", message: arrived }, ctx.context);
+  const result = await pi.emit(
+    "session_before_compact",
+    {
+      type: "session_before_compact",
+      preparation: {
+        firstKeptEntryId: "arrived",
+        messagesToSummarize: [user("RAW-ONLY")],
+        turnPrefixMessages: [],
+        tokensBefore: 12,
+        settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
+      },
+      branchEntries: [entry],
+      signal: new AbortController().signal,
+      reason: "threshold",
+      willRetry: false,
+    },
+    ctx.context,
+  );
+  assert.equal(result.compaction.summary, "fresh summary");
+  const rendered = JSON.stringify(requestMessages);
+  assert.equal(rendered.includes("just-arrived"), true);
+  assert.equal(rendered.includes("RAW-ONLY"), false);
+  assert.equal(ctx.aborts, 0);
 });
 
 test("Pi context applies null and non-null context edits by entry id", async () => {
@@ -1193,6 +1433,7 @@ test("Pi compact tail uses the host projection for omissions and rewrites", asyn
         messagesToSummarize: [omitted, kept, rewritten],
         turnPrefixMessages: [],
         tokensBefore: 12,
+        settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
       },
       branchEntries: entries,
       signal: new AbortController().signal,
@@ -1228,7 +1469,7 @@ test("Pi compact abort after Spine completion faults the live session", async ()
     "session_before_compact",
     {
       type: "session_before_compact",
-      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1, settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 } },
       branchEntries: [entry],
       signal: signal.signal,
       reason: "manual",
@@ -1260,7 +1501,7 @@ test("Pi compact abort before Spine compact cancels without latching a fault", a
     "session_before_compact",
     {
       type: "session_before_compact",
-      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1, settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 } },
       branchEntries: [entry],
       signal: new AbortController().signal,
       reason: "manual",
@@ -1305,7 +1546,7 @@ test("Pi compact summarization AbortError cancels without latching a fault", asy
     "session_before_compact",
     {
       type: "session_before_compact",
-      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1, settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 } },
       branchEntries: [entry],
       signal: new AbortController().signal,
       reason: "manual",
@@ -1373,7 +1614,7 @@ test("Pi compact model error notifies the provider reason and does not use the e
     "session_before_compact",
     {
       type: "session_before_compact",
-      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1, settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 } },
       branchEntries: [entry],
       signal: new AbortController().signal,
       reason: "manual",
@@ -1407,7 +1648,7 @@ test("Pi compact model error without errorMessage uses the stopReason fallback",
     "session_before_compact",
     {
       type: "session_before_compact",
-      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1, settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 } },
       branchEntries: [entry],
       signal: new AbortController().signal,
       reason: "manual",
@@ -1437,7 +1678,7 @@ test("Pi compact empty summary cancels without latching a fault", async () => {
     "session_before_compact",
     {
       type: "session_before_compact",
-      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1, settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 } },
       branchEntries: [entry],
       signal: new AbortController().signal,
       reason: "manual",
@@ -1467,7 +1708,7 @@ test("Pi compact missing first-kept entry cancels without latching a fault", asy
     "session_before_compact",
     {
       type: "session_before_compact",
-      preparation: { firstKeptEntryId: "missing", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      preparation: { firstKeptEntryId: "missing", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1, settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 } },
       branchEntries: [entry],
       signal: new AbortController().signal,
       reason: "manual",
@@ -1497,7 +1738,7 @@ test("Pi compact complete failure cancels without latching a fault", async () =>
     "session_before_compact",
     {
       type: "session_before_compact",
-      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1, settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 } },
       branchEntries: [entry],
       signal: new AbortController().signal,
       reason: "manual",
@@ -1532,7 +1773,7 @@ test("Pi compact commit failure still faults the live session", async () => {
     "session_before_compact",
     {
       type: "session_before_compact",
-      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1 },
+      preparation: { firstKeptEntryId: "kept-1", messagesToSummarize: [kept], turnPrefixMessages: [], tokensBefore: 1, settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 } },
       branchEntries: [entry],
       signal: new AbortController().signal,
       reason: "manual",
@@ -1638,6 +1879,7 @@ test("Pi custom compaction summarizes, durably barriers, and publishes replaceme
         messagesToSummarize: [kept],
         turnPrefixMessages: [],
         tokensBefore: 12,
+        settings: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
         previousSummary: undefined,
       },
       branchEntries: [entry],

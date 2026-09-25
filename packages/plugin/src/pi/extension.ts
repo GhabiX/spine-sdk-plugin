@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import {
   buildSessionProjection,
   convertToLlm,
-  serializeConversation,
   sessionEntryToContextMessages,
   type CompactionResult,
   type ContextEvent,
@@ -47,6 +46,7 @@ import { createPiSpineAdapter, createPiSpawnStagingStore } from "./index.js";
 import {
   buildCompactBarrier,
   decodeSpawnTasks,
+  operationFromPiToolCall,
   PiSamplingLifecycle,
   PiSamplingLifecycleError,
   PiSpineToolMixError,
@@ -514,6 +514,8 @@ function registerLifecycleHandlers(
   });
   pi.on("tool_call", async (event, ctx) => {
     try {
+      const admission = controlToolAdmission(slot, event.toolName, event.input);
+      if (admission !== undefined) return admission;
       await (await requireSession(slot)).lifecycle.registerToolCall(
         event.toolCallId,
         event.toolName,
@@ -612,7 +614,7 @@ function registerLifecycleHandlers(
     let summaryResult: { summary: string; usage?: CompactionResult["usage"] };
     let retained: { messages: PiAgentMessage[]; entryIds: (string | null)[] };
     try {
-      summaryResult = await summarizePiCompaction(event, ctx);
+      summaryResult = await summarizePiCompaction(session, event, ctx);
       if (event.signal?.aborted === true) {
         return { cancel: true };
       }
@@ -679,30 +681,40 @@ function registerLifecycleHandlers(
 }
 
 async function summarizePiCompaction(
+  session: ActivePiSession,
   event: SessionBeforeCompactEvent,
   ctx: ExtensionContext,
 ): Promise<{ summary: string; usage?: CompactionResult["usage"] }> {
   const model = ctx.model;
   if (model === undefined) throw new Error("Pi compaction requires an active model");
-  const preparation = event.preparation;
-  const messages = [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages];
-  const conversation = serializeConversation(convertToLlm(messages));
-  const previous = preparation.previousSummary === undefined
+  await session.lifecycle.previewContext();
+  const visible = session.latestContext.messages.filter((message) => !isPiHostSystemMessage(message));
+  const tools = currentPiToolDeclarations(event.branchEntries);
+  const previous = event.preparation.previousSummary === undefined
     ? ""
-    : `\n\nPrevious summary:\n${preparation.previousSummary}`;
+    : `\n\nPrevious summary:\n${event.preparation.previousSummary}`;
   const response = await ctx.modelRegistry.complete(
     model,
     {
-      messages: [{
-        role: "user",
-        content: [{
-          type: "text",
-          text: `Create a concise structured continuation summary for this session.${previous}\n\nConversation:\n${conversation}`,
-        }],
-        timestamp: Date.now(),
-      }],
+      ...(tools.length > 0 ? { tools } : {}),
+      messages: [
+        ...convertToLlm(visible as unknown as Parameters<typeof convertToLlm>[0]),
+        {
+          role: "user",
+          content: [{
+            type: "text",
+            text: `Create a concise structured continuation summary for this session.${previous}`,
+          }],
+          timestamp: Date.now(),
+        },
+      ],
     },
-    { maxTokens: 8192, signal: event.signal, cacheRetention: "none", sessionId: randomUUID() },
+    {
+      maxTokens: piNativeSummaryMaxTokens(event.preparation.settings.reserveTokens, model.maxTokens),
+      signal: event.signal,
+      cacheRetention: "none",
+      sessionId: randomUUID(),
+    },
   );
   if (event.signal?.aborted === true || response.stopReason === "aborted") {
     throw abortError("Pi compaction summarization aborted");
@@ -719,6 +731,35 @@ async function summarizePiCompaction(
   if (summary.length === 0) throw new Error("Pi compaction model returned an empty summary");
   const usage = response.usage as CompactionResult["usage"];
   return usage === undefined ? { summary } : { summary, usage };
+}
+
+type PiToolDeclaration = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
+function currentPiToolDeclarations(branchEntries: readonly SessionEntry[]): PiToolDeclaration[] {
+  const tools = new Map<string, PiToolDeclaration>();
+  for (const entry of branchEntries) {
+    for (const message of sessionEntryToContextMessages(entry)) {
+      if (!isPiHostSystemMessage(message)) continue;
+      const system = message as {
+        toolsRemoved?: readonly { name: string }[];
+        toolsAdded?: readonly PiToolDeclaration[];
+      };
+      for (const removed of system.toolsRemoved ?? []) tools.delete(removed.name);
+      for (const added of system.toolsAdded ?? []) tools.set(added.name, added);
+    }
+  }
+  return [...tools.values()];
+}
+
+function piNativeSummaryMaxTokens(reserveTokens: number, modelMaxTokens: number): number {
+  return Math.min(
+    Math.floor(0.8 * reserveTokens),
+    modelMaxTokens > 0 ? modelMaxTokens : Number.POSITIVE_INFINITY,
+  );
 }
 
 function retainedPiMessages(
@@ -1056,6 +1097,35 @@ export function extractTypedChildMemory(stdout: string): string {
     throw new Error(`Pi Spawn child returned ${memories.length} typed terminal memories`);
   }
   return memories[0]!;
+}
+
+const CONTROL_TOOLS = ["spine_open", "spine_close", "spine_next"] as const;
+
+function controlToolAdmission(
+  slot: MutableSessionSlot,
+  toolName: string,
+  input: Record<string, unknown>,
+): { block: true; reason: string } | undefined {
+  if (!CONTROL_TOOLS.includes(toolName as (typeof CONTROL_TOOLS)[number])) return undefined;
+  operationFromPiToolCall(toolName as (typeof CONTROL_TOOLS)[number], input);
+  const fault = slot.fault ?? slot.current?.lifecycle.fault ?? null;
+  if (fault !== null) {
+    const detail = fault instanceof Error ? fault.message : String(fault);
+    return { block: true, reason: `Spine durability is faulted: ${detail}` };
+  }
+  if (toolName === "spine_open" || slot.current === null) return undefined;
+  const projection = slot.current.latestContext.projection;
+  const cursor = projection.nodes.find((node) =>
+    node.id.length === projection.cursor.length &&
+    node.id.every((part, index) => part === projection.cursor[index]),
+  );
+  if (cursor === undefined) {
+    return { block: true, reason: "Spine cursor is missing from the derived tree" };
+  }
+  if ((toolName === "spine_close" || toolName === "spine_next") && cursor.kind === "RootEpoch") {
+    return { block: true, reason: "no open Spine node is available to close" };
+  }
+  return undefined;
 }
 
 async function requireSession(slot: MutableSessionSlot): Promise<ActivePiSession> {
