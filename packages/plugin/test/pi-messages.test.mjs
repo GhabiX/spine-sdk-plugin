@@ -4,6 +4,10 @@ import test from "node:test";
 import {
   isPiHostSystemMessage,
   materializePiContext,
+  PI_SPINE_MEMORY_MESSAGE_TYPE,
+  PI_SPINE_NODE_MESSAGE_TYPE,
+  PI_SPINE_SPAWN_EVIDENCE_MESSAGE_TYPE,
+  projectPiSpineMessages,
   PiContextMaterializationError,
   PiSourceBindings,
   sourceObservation,
@@ -108,11 +112,32 @@ test("Pi renders only the canonical Spine-owned projection forms", () => {
   const messages = materializePiContext(context, bindings, {
     nodePrompt: "KEEP subsequent work inside this branch.",
   });
+  assert.equal(messages[0].role, "custom");
+  assert.equal(messages[0].customType, PI_SPINE_NODE_MESSAGE_TYPE);
+  assert.equal(messages[0].details.kind, "node");
   assert.equal(messages[0].content,
     '<spine_node id="0.1" summary="child &lt;scope&gt;" status="opened">\nKEEP subsequent work inside this branch.\n</spine_node>');
+  assert.equal(messages[1].role, "custom");
+  assert.equal(messages[1].customType, PI_SPINE_MEMORY_MESSAGE_TYPE);
+  assert.equal(messages[1].details.kind, "memory");
   assert.equal(messages[1].content,
     '<spine_memory node_id="0.2">\nmemory\n</spine_memory>');
+  assert.equal(messages[2].role, "custom");
+  assert.equal(messages[2].customType, PI_SPINE_SPAWN_EVIDENCE_MESSAGE_TYPE);
+  assert.equal(messages[2].details.kind, "spawn_evidence");
   assert.match(messages[2].content, /^<spine_spawn_evidence node_id="0">/);
+
+  const providerMessages = projectPiSpineMessages(messages);
+  assert.equal(providerMessages[0].role, "system");
+  assert.equal(providerMessages[0].content, messages[0].content);
+  assert.equal(providerMessages[1].role, "custom");
+  assert.equal(providerMessages[1].customType, PI_SPINE_MEMORY_MESSAGE_TYPE);
+  assert.equal(providerMessages[2].role, "custom");
+  assert.equal(providerMessages[2].customType, PI_SPINE_SPAWN_EVIDENCE_MESSAGE_TYPE);
+
+  const reprojected = projectPiSpineMessages(providerMessages);
+  assert.deepEqual(reprojected.map((message) => message.role), ["system", "custom", "custom"]);
+  assert.equal(reprojected[0].content, providerMessages[0].content);
 });
 
 test("Pi materialization applies an entry projection without matching message text", () => {

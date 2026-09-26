@@ -259,16 +259,13 @@ test("before_agent_start installs the canonical Spine instruction", async () => 
   createPiExtension()(pi.api);
   await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
 
-  const result = await pi.emit(
-    "before_agent_start",
-    {
-      type: "before_agent_start",
-      prompt: "Implement the task",
-      systemPrompt: "base system prompt",
-      systemPromptOptions: {},
-    },
-    ctx.context,
-  );
+  const event = {
+    type: "before_agent_start",
+    prompt: "Implement the task",
+    systemPrompt: "base system prompt",
+    systemPromptOptions: {},
+  };
+  await pi.emit("before_agent_start", event, ctx.context);
 
   const expectedRuntime = createNodeSpineRuntime({
     thread: "pi-session",
@@ -277,18 +274,71 @@ test("before_agent_start installs the canonical Spine instruction", async () => 
   });
   try {
     assert.equal(
-      result.systemPrompt,
-      expectedRuntime.extendSystemPrompt("base system prompt"),
+      event.systemPromptOptions.appendSystemPrompt,
+      expectedRuntime.extendSystemPrompt(""),
     );
-    assert.match(result.systemPrompt, /spine_open/);
-    assert.doesNotMatch(result.systemPrompt, /spine\.open/);
+    assert.match(event.systemPromptOptions.appendSystemPrompt, /spine_open/);
+    assert.doesNotMatch(event.systemPromptOptions.appendSystemPrompt, /spine\.open/);
     assert.match(
-      result.systemPrompt,
+      event.systemPromptOptions.appendSystemPrompt,
       /A user message is not the granularity of a SpineBranch/,
     );
   } finally {
     expectedRuntime.dispose();
   }
+});
+
+test("context_with_system preserves host messages and restores Spine node roles per request", async () => {
+  const pi = mockPi();
+  createPiExtension()(pi.api);
+  const messages = [
+    { role: "system", content: "Pi host instructions", timestamp: 1 },
+    {
+      role: "custom",
+      customType: "spine.node",
+      content: '<spine_node id="0" status="opened">node instructions</spine_node>',
+      display: false,
+      timestamp: 2,
+      details: {
+        schema: "spine.pi.projection/v1",
+        kind: "node",
+        nodeId: "0",
+        renderer: "xml",
+      },
+    },
+    {
+      role: "custom",
+      customType: "spine.memory",
+      content: "<spine_memory>returned context</spine_memory>",
+      display: false,
+      timestamp: 3,
+      details: {
+        schema: "spine.pi.projection/v1",
+        kind: "memory",
+        nodeId: "0",
+        renderer: "xml",
+      },
+    },
+    { role: "user", content: "continue", timestamp: 4 },
+  ];
+
+  const projected = await pi.emit(
+    "context_with_system",
+    { messages },
+    extensionContext().context,
+  );
+
+  assert.deepEqual(projected.messages.map((message) => message.role), [
+    "system",
+    "system",
+    "custom",
+    "user",
+  ]);
+  assert.equal(projected.messages[0].content, "Pi host instructions");
+  assert.equal(projected.messages[1].content, messages[1].content);
+  assert.equal(projected.messages[2].customType, "spine.memory");
+  assert.equal(projected.messages[3].content, "continue");
+  assert.equal(messages[1].role, "custom");
 });
 
 test("child mode keeps ordinary tools, Spine tree tools, nested spawn, and typed return", async () => {
@@ -321,19 +371,16 @@ test("child mode installs Spine lifecycle so descendant open/close/next can run"
   createPiExtension()(pi.api);
   const ctx = extensionContext();
   await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
-  const result = await pi.emit(
-    "before_agent_start",
-    {
-      type: "before_agent_start",
-      prompt: "child work",
-      systemPrompt: "base system prompt",
-      systemPromptOptions: {},
-    },
-    ctx.context,
-  );
-  assert.match(result.systemPrompt, /spine_open/);
-  assert.match(result.systemPrompt, /spine_close/);
-  assert.match(result.systemPrompt, /spine_next/);
+  const event = {
+    type: "before_agent_start",
+    prompt: "child work",
+    systemPrompt: "base system prompt",
+    systemPromptOptions: {},
+  };
+  await pi.emit("before_agent_start", event, ctx.context);
+  assert.match(event.systemPromptOptions.appendSystemPrompt, /spine_open/);
+  assert.match(event.systemPromptOptions.appendSystemPrompt, /spine_close/);
+  assert.match(event.systemPromptOptions.appendSystemPrompt, /spine_next/);
 });
 
 test("session transitions never install a stale asynchronous runtime", async () => {
@@ -401,17 +448,14 @@ test("user abort of a host tool does not latch a fault on a stray follow-up turn
 
   await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
   await pi.emit("message_end", { type: "message_end", message: user("investigate") }, ctx.context);
-  const firstPrompt = await pi.emit(
-    "before_agent_start",
-    {
-      type: "before_agent_start",
-      prompt: "investigate",
-      systemPrompt: "base system prompt",
-      systemPromptOptions: {},
-    },
-    ctx.context,
-  );
-  assert.match(firstPrompt.systemPrompt, /spine_open/);
+  const firstPrompt = {
+    type: "before_agent_start",
+    prompt: "investigate",
+    systemPrompt: "base system prompt",
+    systemPromptOptions: {},
+  };
+  await pi.emit("before_agent_start", firstPrompt, ctx.context);
+  assert.match(firstPrompt.systemPromptOptions.appendSystemPrompt, /spine_open/);
   await pi.emit(
     "before_provider_request",
     { type: "before_provider_request", payload: { model: "test", input: ["investigate"] } },
@@ -471,17 +515,14 @@ test("user abort of a host tool does not latch a fault on a stray follow-up turn
   );
 
   ctx.context.signal = new AbortController().signal;
-  const continued = await pi.emit(
-    "before_agent_start",
-    {
-      type: "before_agent_start",
-      prompt: "continue",
-      systemPrompt: "base system prompt",
-      systemPromptOptions: {},
-    },
-    ctx.context,
-  );
-  assert.match(continued.systemPrompt, /spine_open/);
+  const continued = {
+    type: "before_agent_start",
+    prompt: "continue",
+    systemPrompt: "base system prompt",
+    systemPromptOptions: {},
+  };
+  await pi.emit("before_agent_start", continued, ctx.context);
+  assert.match(continued.systemPromptOptions.appendSystemPrompt, /spine_open/);
   await pi.emit(
     "before_provider_request",
     { type: "before_provider_request", payload: { model: "test", input: ["continue"] } },
@@ -1084,17 +1125,14 @@ test("WASM-backed extension blocks spawn mixed with open without aborting the se
     "sampling_commit",
   );
 
-  const continued = await pi.emit(
-    "before_agent_start",
-    {
-      type: "before_agent_start",
-      prompt: "continue",
-      systemPrompt: "base system prompt",
-      systemPromptOptions: {},
-    },
-    ctx.context,
-  );
-  assert.match(continued.systemPrompt, /spine_open/);
+  const continued = {
+    type: "before_agent_start",
+    prompt: "continue",
+    systemPrompt: "base system prompt",
+    systemPromptOptions: {},
+  };
+  await pi.emit("before_agent_start", continued, ctx.context);
+  assert.match(continued.systemPromptOptions.appendSystemPrompt, /spine_open/);
   assert.equal(ctx.aborts, 0);
 });
 
@@ -1513,17 +1551,14 @@ test("Pi compact abort before Spine compact cancels without latching a fault", a
   assert.equal(ctx.aborts, 0);
   assert.deepEqual(ctx.notifications, []);
   assert.equal(pi.entries.filter((item) => item.customType === "spine.compact.v1").length, 0);
-  const continued = await pi.emit(
-    "before_agent_start",
-    {
-      type: "before_agent_start",
-      prompt: "continue",
-      systemPrompt: "base system prompt",
-      systemPromptOptions: {},
-    },
-    ctx.context,
-  );
-  assert.match(continued.systemPrompt, /spine_open/);
+  const continued = {
+    type: "before_agent_start",
+    prompt: "continue",
+    systemPrompt: "base system prompt",
+    systemPromptOptions: {},
+  };
+  await pi.emit("before_agent_start", continued, ctx.context);
+  assert.match(continued.systemPromptOptions.appendSystemPrompt, /spine_open/);
 });
 
 test("Pi compact summarization AbortError cancels without latching a fault", async () => {
@@ -1558,33 +1593,27 @@ test("Pi compact summarization AbortError cancels without latching a fault", asy
   assert.equal(ctx.aborts, 0);
   assert.deepEqual(ctx.notifications, []);
   assert.equal(pi.entries.filter((item) => item.customType === "spine.compact.v1").length, 0);
-  const continued = await pi.emit(
-    "before_agent_start",
-    {
-      type: "before_agent_start",
-      prompt: "continue",
-      systemPrompt: "base system prompt",
-      systemPromptOptions: {},
-    },
-    ctx.context,
-  );
-  assert.match(continued.systemPrompt, /spine_open/);
+  const continued = {
+    type: "before_agent_start",
+    prompt: "continue",
+    systemPrompt: "base system prompt",
+    systemPromptOptions: {},
+  };
+  await pi.emit("before_agent_start", continued, ctx.context);
+  assert.match(continued.systemPromptOptions.appendSystemPrompt, /spine_open/);
 });
 
 async function continueAfterSoftCancel(pi, ctx) {
   assert.equal(ctx.aborts, 0);
   assert.equal(pi.entries.filter((item) => item.customType === "spine.compact.v1").length, 0);
-  const continued = await pi.emit(
-    "before_agent_start",
-    {
-      type: "before_agent_start",
-      prompt: "continue",
-      systemPrompt: "base system prompt",
-      systemPromptOptions: {},
-    },
-    ctx.context,
-  );
-  assert.match(continued.systemPrompt, /spine_open/);
+  const continued = {
+    type: "before_agent_start",
+    prompt: "continue",
+    systemPrompt: "base system prompt",
+    systemPromptOptions: {},
+  };
+  await pi.emit("before_agent_start", continued, ctx.context);
+  assert.match(continued.systemPromptOptions.appendSystemPrompt, /spine_open/);
 }
 
 function compactFixture() {
@@ -1832,17 +1861,14 @@ test("user abort after Spine tool register drains leftover execution without lat
   assert.equal(ctx.aborts, 0);
 
   ctx.context.signal = new AbortController().signal;
-  const continued = await pi.emit(
-    "before_agent_start",
-    {
-      type: "before_agent_start",
-      prompt: "continue",
-      systemPrompt: "base system prompt",
-      systemPromptOptions: {},
-    },
-    ctx.context,
-  );
-  assert.match(continued.systemPrompt, /spine_open/);
+  const continued = {
+    type: "before_agent_start",
+    prompt: "continue",
+    systemPrompt: "base system prompt",
+    systemPromptOptions: {},
+  };
+  await pi.emit("before_agent_start", continued, ctx.context);
+  assert.match(continued.systemPromptOptions.appendSystemPrompt, /spine_open/);
 });
 
 test("Pi custom compaction summarizes, durably barriers, and publishes replacement context", async () => {
@@ -1952,8 +1978,9 @@ test("widget registration failure does not poison canonical session initializati
   createPiExtension()(pi.api);
   await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
   assert.equal(ctx.aborts, 0);
-  const reply = await pi.emit("before_agent_start", { systemPrompt: "base" }, ctx.context);
-  assert.ok(reply.systemPrompt.length > 0);
+  const event = { systemPrompt: "base", systemPromptOptions: {} };
+  await pi.emit("before_agent_start", event, ctx.context);
+  assert.ok(event.systemPromptOptions.appendSystemPrompt.length > 0);
   let offered = false;
   pi.api.events.emit(SPINE_TREE_VIEW_REQUEST, { version: 1, sessionId: "pi-session", accept() { offered = true; } });
   assert.equal(offered, false);

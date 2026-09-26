@@ -29,7 +29,25 @@ interface PiThinkingContent {
   thinking: string;
 }
 
+export const PI_SPINE_NODE_MESSAGE_TYPE = "spine.node";
+export const PI_SPINE_MEMORY_MESSAGE_TYPE = "spine.memory";
+export const PI_SPINE_SPAWN_EVIDENCE_MESSAGE_TYPE = "spine.spawn_evidence";
+
+export interface PiSpineProjectionDetails {
+  schema: "spine.pi.projection/v1";
+  kind: "node" | "memory" | "spawn_evidence";
+  nodeId: string;
+  status?: string;
+  renderer: "xml";
+}
+
 export type PiAgentMessage =
+  | {
+      role: "system";
+      content: string | PiTextContent[];
+      timestamp: number;
+      [key: string]: unknown;
+    }
   | {
       role: "user";
       content: string | Array<PiTextContent | PiImageContent>;
@@ -236,24 +254,39 @@ function materializeProjection(
     const live = status === "Live" || status === "Opened";
     const prompt = live ? nodePrompt.trim() : "";
     const inner = prompt.length > 0 ? `\n${prompt}\n` : "\n";
-    // Pi's LLM adapter has no developer role (Codex uses developer for this
-    // fragment). The <spine_node> tag is the model-visible marker; convertToLlm
-    // would still send a custom/developer stand-in as user.
-    return userMessage(
+    return spineProjectionMessage(
+      PI_SPINE_NODE_MESSAGE_TYPE,
       `<spine_node id="${nodeId.join(".")}" summary="${escapeXmlAttribute(summary)}" status="${status.toLowerCase()}">${inner}</spine_node>`,
+      {
+        schema: "spine.pi.projection/v1",
+        kind: "node",
+        nodeId: nodeId.join("."),
+        status: status.toLowerCase(),
+        renderer: "xml",
+      },
     );
   }
   if ("MemorySlot" in item) {
     const slot = item.MemorySlot;
     if ("Summary" in slot) {
-      return userMessage(
+      const nodeId = slot.Summary.owner_node.join(".");
+      return spineProjectionMessage(
+        PI_SPINE_MEMORY_MESSAGE_TYPE,
         `<spine_memory node_id="${slot.Summary.owner_node.join(".")}">\n${slot.Summary.body}\n</spine_memory>`,
+        {
+          schema: "spine.pi.projection/v1",
+          kind: "memory",
+          nodeId,
+          renderer: "xml",
+        },
       );
     }
     if ("SpawnEvidence" in slot) {
       const evidence = slot.SpawnEvidence;
-      return userMessage(
-        `<spine_spawn_evidence node_id="${evidence.owner_node.join(".")}">\n${JSON.stringify(
+      const nodeId = evidence.owner_node.join(".");
+      return spineProjectionMessage(
+        PI_SPINE_SPAWN_EVIDENCE_MESSAGE_TYPE,
+        `<spine_spawn_evidence node_id="${nodeId}">\n${JSON.stringify(
           {
             summary: evidence.task.summary,
             prompt: evidence.task.prompt,
@@ -264,10 +297,44 @@ function materializeProjection(
           null,
           2,
         )}\n</spine_spawn_evidence>`,
+        {
+          schema: "spine.pi.projection/v1",
+          kind: "spawn_evidence",
+          nodeId,
+          renderer: "xml",
+        },
       );
     }
   }
   throw unsupportedProjection(item);
+}
+
+/** Convert only Spine node descriptors to Pi system messages for a request. */
+export function projectPiSpineMessages(messages: readonly PiAgentMessage[]): PiAgentMessage[] {
+  return messages.map((message) => {
+    if (!isPiSpineProjection(message, PI_SPINE_NODE_MESSAGE_TYPE)) {
+      return structuredClone(message);
+    }
+    return {
+      role: "system",
+      content: typeof message.content === "string"
+        ? message.content
+        : message.content.filter((part): part is PiTextContent => part.type === "text"),
+      timestamp: message.timestamp,
+    };
+  });
+}
+
+export function isPiSpineProjection(
+  message: PiAgentMessage,
+  customType?: string,
+): message is Extract<PiAgentMessage, { role: "custom" }> {
+  if (message.role !== "custom") return false;
+  if (customType !== undefined && message.customType !== customType) return false;
+  const details = message.details;
+  return details !== null
+    && typeof details === "object"
+    && (details as { schema?: unknown }).schema === "spine.pi.projection/v1";
 }
 
 function unsupportedProjection(item: ContextItem): PiContextMaterializationError {
@@ -311,6 +378,8 @@ function prependUserAnchor(message: PiAgentMessage, anchor: number): PiAgentMess
 
 function sourceRole(message: PiAgentMessage): "user" | "contextual_user" | "assistant" {
   switch (message.role) {
+    case "system":
+      throw new PiContextMaterializationError("Pi host system message must not be recorded as a source");
     case "user":
       return "user";
     case "assistant":
@@ -335,6 +404,21 @@ function assertNever(value: never): never {
 
 function userMessage(content: string): PiAgentMessage {
   return { role: "user", content, timestamp: 0 };
+}
+
+function spineProjectionMessage(
+  customType: string,
+  content: string,
+  details: PiSpineProjectionDetails,
+): PiAgentMessage {
+  return {
+    role: "custom",
+    customType,
+    content,
+    display: false,
+    timestamp: 0,
+    details,
+  };
 }
 
 function sourceIdKey(id: EpochOrdinalId): string {

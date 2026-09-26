@@ -55,6 +55,7 @@ import {
 import {
   isPiHostSystemMessage,
   materializePiContext,
+  projectPiSpineMessages,
   type PiAgentMessage,
   type PiSourceBindings,
 } from "./messages.js";
@@ -500,6 +501,9 @@ function registerLifecycleHandlers(
       return { messages: [] };
     }
   });
+  pi.on("context_with_system", async (event) => ({
+    messages: projectPiSpineMessages(event.messages as unknown as PiAgentMessage[]) as unknown as ContextEvent["messages"],
+  }));
   pi.on("before_provider_request", async (event, ctx) => {
     await guardHook(slot, ctx, async () => {
       slot.samplingPrefix = structuredClone(ctx.sessionManager.getBranch());
@@ -508,9 +512,10 @@ function registerLifecycleHandlers(
   });
   pi.on("before_agent_start", async (event) => {
     const session = await requireSession(slot);
-    return {
-      systemPrompt: session.runtime.extendSystemPrompt(event.systemPrompt),
-    };
+    if (event.systemPromptOptions === undefined) return;
+    event.systemPromptOptions.appendSystemPrompt = session.runtime.extendSystemPrompt(
+      event.systemPromptOptions.appendSystemPrompt ?? "",
+    );
   });
   pi.on("tool_call", async (event, ctx) => {
     try {
@@ -688,7 +693,9 @@ async function summarizePiCompaction(
   const model = ctx.model;
   if (model === undefined) throw new Error("Pi compaction requires an active model");
   await session.lifecycle.previewContext();
-  const visible = session.latestContext.messages.filter((message) => !isPiHostSystemMessage(message));
+  const visible = projectPiSpineMessages(
+    session.latestContext.messages.filter((message) => !isPiHostSystemMessage(message)),
+  );
   const tools = currentPiToolDeclarations(event.branchEntries);
   const previous = event.preparation.previousSummary === undefined
     ? ""
