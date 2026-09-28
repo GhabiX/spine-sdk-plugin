@@ -1,0 +1,15 @@
+{
+  "initialInterview": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/lifecycle-spinetree-grok-20260928_1317/turn-3-answer.json",
+  "correctedInterview": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/lifecycle-spinetree-grok-20260928_1317/turn-4-answer.json",
+  "unsupportedClaims": [
+    "root remained the ProjectBranch for every prior envelope",
+    "earlier Close calls executed at root",
+    "Open and Next were not used in the task",
+    "projected memory order reconstructed original tool order"
+  ],
+  "counterEvidence": "turn-1 raw canonical receipts, resource offers, final task state",
+  "confirmedLimitation": "Returned projection does not contain all original execution history; a retrospective alone is not an execution audit.",
+  "correction": "two spinetree_read calls confirmed distinct capped sibling Branch IDs, parent root and separate memory v1; Agent withdrew unsupported claims.",
+  "remainingIssue": "Interview completed in live [1,4]; explicit turn5 close reminder required.",
+  "toolResultSuggestion": "Agent requested applied/location in tool result. Applied cannot truthfully precede PostSampling; current resource envelope already carries committed branch and node. No production prompt change made on self-report alone."
+}

@@ -1,0 +1,81 @@
+{
+  "passed": true,
+  "timestamp": "2026-09-28T05:01:09.624900+00:00",
+  "checks": [
+    {
+      "name": "guard-final",
+      "command": [
+        "node",
+        "scripts/verify-core-source.mjs"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "diff-check",
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "core-source.json",
+        "scripts/build-node-wasm.sh",
+        "README.md",
+        "packages/sdk/wasm/node"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "nativeTestsPassed": 13,
+  "packagedTestsPassed": 8,
+  "sourceFileCount": 48,
+  "artifactCount": 4,
+  "hashReferences": {
+    "Cargo.lock": "6e53101fa51580f80109edbf3ec5bc4eb54fabd974c9eed5e9e6df34b68919c6",
+    "Cargo.toml": "7b9ce2919615789f52f9eccc08908004adadd9c98c7042d7e2398ffeff2bb64a",
+    "README.md": "15a2011c5cff4c322680a5a63c9bdad21f8cd24beb95fe5e4608c1956e1ca1a0",
+    "core-source.json": "2ee191f7c37f75197c80d03929eb513bd3b43a624157527f503e83a76a129205",
+    "crates/spine-wasm/Cargo.toml": "8d1089992658c373b8708904c2203a97184f91c80303aaa69ded65f556ec8bfc",
+    "crates/spine-wasm/src/dto.rs": "1e83609044aab4431ab6b227c1b6313ccf67111de5e5e88db7caf02725bdc477",
+    "crates/spine-wasm/src/lib.rs": "13ceacbeb3d263688e3a495ea22db67c339c6da64897f3459d7d548b28dff3ff",
+    "crates/spine-wasm/src/runtime.rs": "7d425149cff02dcd3da52a643ab343b5c2a7a7af9bc3b9bb2c3b97e507b70971",
+    "crates/spine-wasm/src/validation.rs": "77151918252519f8730141148f3833824edcb5c72a6ae2b2ef729c49f96ffb02",
+    "crates/spine-wasm/tests/portable_golden.rs": "59e521bb3ce2e9de98a2c5585b00b3e917b9d9f568f10d70927ff2045783fb43",
+    "crates/spine-wasm/tests/portable_protocol_tests.rs": "24b690e0cbc69aa7aa1788c12b1ebc6aa4ad452a6bdfd147f7a9f95d6ddb65ea",
+    "crates/spine-wasm/tests/portable_runtime.rs": "1d093359a160b143666d57819de4c85130cf384d2e8e447854c2aff82ca39295",
+    "packages/sdk/wasm/node/spine_wasm.cjs": "1165fa5c32ac87d6f3d58ece8c647d94f348bdea2d67bfb107f2ac8c9070eaad",
+    "packages/sdk/wasm/node/spine_wasm.d.ts": "36302cf124acbb8008f9ff94cd07df102148c4e219c54ab00361d99f86addace",
+    "packages/sdk/wasm/node/spine_wasm_bg.wasm": "71e1f4adfd43a66dbaec28116a89b1028607b04ceacb099cdfe376694b8e3acf",
+    "packages/sdk/wasm/node/spine_wasm_bg.wasm.d.ts": "194c07e0f7f72fa44849dabeab6b8dc77c9ad1f290784b20adcbc8b11077f843",
+    "provenance/node-wasm-build.json": "48fdf8fd547bb8e65c46823af48c348fa0bdf01c245f92540682dd16630aeda0",
+    "provenance/spine-core-cb01f18.patch": "79ae41876c11bcd6fe994d64b6a40dfa44ac065feaa34cf487214a4ec702842c",
+    "scripts/build-node-wasm.sh": "2db7c3361be2014f80e4d526e65a6428caa700dcaffd4928a42d6bf1391f191e",
+    "scripts/verify-core-source.mjs": "324e18de74616939d02f5d9938d5f001f59a96b2cc317682bed3d836b5387a42",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/core-source.before.json": "08c2b4a580b2017114c26b67a8671bc7ed948eef1774cd459f8a274a09d5aeec",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/diff-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/empty-node-probe.json": "212fc299064d620fd348a107e2b6ab5ac10ef8ca3b6f09d394d582f19b121ed1",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/empty-node-probe.log": "fa731f15938289505044d7ea2d9ccb4426b8478e52872a360ab57c6ba8bccded",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/empty-node-probe.mjs": "44986d73d24266da7e31e51043bf50ba16fc04ac23dbf971c5fe2a2d4748e37d",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/guard-current.log": "ad877b59876a8df39ab93bd063d42d93739077971f7b56f62e680784a88c34e7",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/guard-final.log": "ad877b59876a8df39ab93bd063d42d93739077971f7b56f62e680784a88c34e7",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/guard-mutated-reconstruction.log": "0de036a4cfe8b00ee3ed9aa8afdb1477ca3eed4c9a9a08e5fed08efac5f9a13f",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/guard-reconstruction.log": "5a5349362fdc17aa996937537b794f5e8de863493d105bc15a0a3ffdc32ae484",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/guard-validation.json": "c64e91c2df0b18ec21c9d40363e5112e7afb85db6a9d520e8509d7a0772a57d4",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/native-portable-tests-command.json": "36635c9d222fb5a02539af25e4137c7df17c01df6365cd22dd8498f048e9fbc2",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/native-portable-tests.log": "4bab6d587523b91c6adfc7aa7ab656ac619d5bbb94efcbc325973067f4869554",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/node-syntax.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/packaged-sdk-runtime.log": "94bc17d62bac2510b481ee9433813695c6821e9f20be490950f2ed5cf64a4208",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/packaged-validation.json": "78d0002886d2daa4f166db78cf6de39d58398a0c3bf5cbf09c9078001b27d021",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/reconstruct-patch.log": "06a0367690cd2a4c38cddf8935a890e6271db4e43a53ddb4e8cf57dcc312c96f",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/report.md": "16e0a8cfd0093dea90ca5bc39f0e57d034f56ded5e1ece47f46fd51b9312c175",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/shell-syntax.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/source-reconstruction.json": "17971802193e2d1a65d40145fe18ae6968c421cfdea2e38017dc7245a6f96b2e",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/wasm-build-command.json": "466514feabcf8c39d75f58fb46298aacb303c7a8a5798a51b60331da9869c0cf",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/wasm-build.log": "1e8d174e5ab8d0060d709b2cafe24149b180dac6b520c39598eb7006f1ddaa5c",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/wasm-golden.log": "38b5fec4f49ac02bfef790cc948a3969ce505f21a9cbdb920493b54e55b49880"
+  },
+  "limits": [
+    "Build used the declared sibling source path after hash verification; the isolated reconstruction was compared byte-for-byte, not separately compiled.",
+    "Bit-for-bit reproducibility across directories/toolchains was not tested.",
+    "Full Codex CLI integration gate is outside this portable SDK provenance check."
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "passed": true,
+  "createdAt": "2026-09-28T07:35:56.601625+00:00",
+  "externalModelRequests": 0,
+  "samplings": 22,
+  "toolPairs": 21,
+  "expectedToolErrors": 3,
+  "expectedRevisionConflicts": 1,
+  "archivedDetailUnchangedAfterContinuation": true,
+  "allAgentsEnded": true,
+  "references": [
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/structure/finish-offline.py",
+      "sha256": "c53135457e929895194ad9c61f9bebe97f98afa24b0d5308782ddb38cebaafaf"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/structure/offline.mjs",
+      "sha256": "6fc70b1c5ef57fa51192b3d725ee76cd97f9285fa4f5dc5919888833b2e0bea3"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/offline/result.json",
+      "sha256": "3802bb9459095760393b74325f284969719e92767eafb286d288859e1e8aca94"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/offline/snapshots.json",
+      "sha256": "acfb330587814ccec1aede3a4c635265689d9fc5f657be2830c62687ace90496"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/offline/samples.json",
+      "sha256": "04f0a29ca94a4cf685be2a91d30924ea4fb98a8fd45e032801fa9e88a7e7be8d"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/offline/sessions/2026-09-28T07-35-21-050Z_f2cf25f8-7624-4802-bd1b-6987c337382f.jsonl",
+      "sha256": "c49752e5483de9ed10b371001d90557b867f454ccbfc0bebcda8200514af1a9a"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/offline-command.log",
+      "sha256": "41892d885518c73db76a0624660d28b744a1e197b504803171231fb182a3253c"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/runtime-manifest.json",
+      "sha256": "dc0b57a8c5a9a00c69aff60155f8262f8ecdd5cbd895795c5a81d550fd4583a6"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/preparation-validation.json",
+      "sha256": "73a707c0551e37083df89a7d84dec7ddcb5b5368b8a71aeb2dcf8fe4de57f345"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/offline-report.md",
+      "sha256": "e09d79aeddd0d2f50130e7a56d963cfd955372d65fc6adf0b9f0ffa8ba3af8ee"
+    }
+  ]
+}

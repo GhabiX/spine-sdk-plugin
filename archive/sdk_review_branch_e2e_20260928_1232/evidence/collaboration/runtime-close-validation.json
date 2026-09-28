@@ -1,0 +1,51 @@
+{
+  "passed": true,
+  "checkedAt": "2026-09-28T11:01:35.056936+00:00",
+  "sdkCommit": "eeea5d68ff1231be43206c4038f43dc2154d8ddf",
+  "runtimeEntriesVerified": 16564,
+  "files": 16547,
+  "symlinks": 17,
+  "unexpectedRuntimeEntries": [],
+  "commitFilesVerified": 92,
+  "finalHead": "21600e29a0d8287bb7765e6af189d77353e5d536",
+  "registryOwnersEnded": 4,
+  "rootCursor": [
+    1
+  ],
+  "readyAt": "2026-09-28T10:01:39.071Z",
+  "closedAt": "2026-09-28T10:27:08.448Z",
+  "originalRunnerPid": 3054106,
+  "originalRunnerPidAbsent": true,
+  "matchingNodePids": [],
+  "unreadablePids": [],
+  "references": [
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/collaboration/verify-runtime-close.py",
+      "sha256": "b8189b90963a75ad0fad748070e1ad882cafab8b982087af97ee975ea607dd18"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/runtime-manifest-live.json",
+      "sha256": "04872991c85636da4fd03aa59aa4a4bd899f3cb8c1c6f4ebc6b9e3fbbdf1a515"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/ready.json",
+      "sha256": "dc168a30d805bf9c566306013add0c99740d0e8e09164f23bc76933ddd9ff7d4"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/final-state.json",
+      "sha256": "50d6d8bbde009aaf1b21fb8ffc0f830345f687ceda84cbcae64e905e863d8aec"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/launch.log",
+      "sha256": "ecebba0e499390ef11d851ae9dea684b10a7c927ca093e27909f0e449efac73f"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/trace-audit.json",
+      "sha256": "1df92c11b9dbbd5d7cbb476bacde50887b0dd67afc7261a28f56847db6285204"
+    }
+  ],
+  "limits": [
+    "Process inspection is a point-in-time check for Node commands tied to this run or frozen runtime.",
+    "Artifact identity does not prove deterministic replay or parallel speedup."
+  ]
+}

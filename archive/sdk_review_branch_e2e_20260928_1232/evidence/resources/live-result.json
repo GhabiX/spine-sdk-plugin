@@ -1,0 +1,144 @@
+{
+  "completedAt": "2026-09-28T07:12:03.956573+00:00",
+  "mechanismPassed": true,
+  "realAgentWorkflowPassed": true,
+  "observedUsabilityPassed": true,
+  "generalUsabilityEstablished": false,
+  "prompts": 4,
+  "closeReminder": false,
+  "sdkCommit": "ac887e67a606ca94adb6463988332e3a470dae79",
+  "runtimeFilesVerified": 16562,
+  "publications": 6,
+  "scriptVersions": 3,
+  "scriptInvocations": 4,
+  "hostChecks": [
+    {
+      "revision": "initial",
+      "batches": 6,
+      "amounts": 220,
+      "version": "261d6d50e600d9430c8aa461f92b5b6cb20c674b923da8a98c7e59a77417a3ba",
+      "sha256": "0bec0dd2ebb6d1d0744451dd62b444e205c3ba2fddf92d908728c8680048c21f"
+    },
+    {
+      "revision": "revised",
+      "batches": 6,
+      "amounts": 220,
+      "version": "b7b241e4e04ccd75128599a375490ba85bbbc857727882a0fae50aa79e15b248",
+      "sha256": "c605c6bee7421ff88c55930355fb8edd393c2ba55b7c3e28983681f9631fd442"
+    },
+    {
+      "revision": "signed",
+      "batches": 6,
+      "amounts": 220,
+      "version": "935f9642d69ca29cd85bd4ef450454b40068ee7ab357bcf7cc40f2131cf9f520",
+      "sha256": "caa2a6443ca890db2fda2e5caa19d8119f86eb4ac52126c78f6aa4003602aa7d"
+    }
+  ],
+  "rootUnchangedAfterLocalOverride": true,
+  "skillAssociationsRecorded": 4,
+  "coissuedTransitionInvocations": [
+    {
+      "line": 161,
+      "resultLine": 165,
+      "branch": "057fd72a-a184-445e-9620-92c905e8db58",
+      "source": "root",
+      "name": "aggregate-money-batch",
+      "version": "b7b241e4e04ccd75128599a375490ba85bbbc857727882a0fae50aa79e15b248",
+      "input": {
+        "amounts": [
+          ".50",
+          "12.",
+          "1.234",
+          "+1"
+        ]
+      },
+      "output": {
+        "totalMinor": 1250,
+        "invalid": [
+          2,
+          3
+        ]
+      },
+      "declaredSkills": [
+        {
+          "name": "check-money-batch",
+          "version": "e6caf95efa6e5982d06cea3d62d3e92ad881a6fc044a447bf9405a3201dc4c43",
+          "source": "root"
+        },
+        {
+          "name": "discover-and-invoke",
+          "version": "a6605e7a8aff0a913c7b7c1de57843f0a780034ddbbce051cad195cf58b9ef3c",
+          "source": "root"
+        }
+      ],
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/scripts/aggregate-money-batch-r2.mjs",
+      "sha256": "c605c6bee7421ff88c55930355fb8edd393c2ba55b7c3e28983681f9631fd442"
+    }
+  ],
+  "toolCounts": {
+    "read": 8,
+    "bash": 9,
+    "spine_open": 4,
+    "write": 6,
+    "edit": 1,
+    "spine_next": 5,
+    "spinetree_read": 8,
+    "spinetree_execute": 10,
+    "spine_close": 4
+  },
+  "usage": {
+    "input": 274191,
+    "output": 69119,
+    "cacheRead": 1204864,
+    "cacheWrite": 0,
+    "totalTokens": 1548174
+  },
+  "sessionsEnded": true,
+  "limits": [
+    "Task prompts explicitly requested publication, revision and a local override; the Agent chose its tool sequence.",
+    "Skill association and declared evidence do not prove causal method influence. Public calculations and independent checks support only tested behavior.",
+    "One revised call shared a sampling with Next and captured the pre-transition offer; later sibling use independently confirms root-version inheritance.",
+    "The first checker failed at session line 41 on pathToFileURL(URL); corrected check passed at line 53. Pi tool isError remained false.",
+    "The retrospective accurately left uninspected histories unknown; it could not see journaled skill associations in the plain tool response.",
+    "This Close success does not resolve earlier two omissions. No Spawn, reexecution or tree restructuring was tested here."
+  ],
+  "hashes": {
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/trace-audit.json": "e353b534c3bf23be0477358e5ec9c87e8cb662051ceeb1995de0edec530355ae",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/runtime-manifest.json": "b2f6c39ceb51e28aa18e28419d1440ccc74c27b77b97f957977a855d818d0125",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/manifest.yaml": "18e1129c591a00ec35cd58d29b0ea38c57c5535f7f7138c60e465d50fa69dc6e",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/worklog.md": "233ac176fb1df3b98d42ed27373239aed872f234afe02144fef022bdf61c8d8b",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/launch.log": "425092ef033ea5a7f632ba3421611d778e47a3f3a0c7941981281c51b9987021",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/SPEC.md": "e8f105f55b65bd3b33cd2c020469adc354532fd7dd0043170aeac3029ebcd935",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/GOAL.md": "335ef9f86c15671be2a438e2a7cfed11564de67ce85b66ecb86a020bd2b15587",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/resources/audit-live.py": "2a9fad85c567532b04810d739f2b2977e2a4118c6e912b8e70e550cf1607bc98",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/resources/finish-live.py": "5e0f1b10000666f4b80b92f6c590336fce9114970fafbb1a046c0da87047cf22",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/resources/dialogue.mjs": "5bf5e78fcc4c5ebab77f93a10808270def6ef9f810976a1654b09cf490c4cfa3",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/resources/verify-candidate.mjs": "ee08ce98d4269d6d11d8b466ddf23b6b714ee976a59e98d7290440026127a967",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/candidate-initial.json": "e6df18a11752c42f74aee2b91ff9c64fb9540d61ec655c5af3c51caa128fa274",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/candidate-local.json": "45c2947282cdf0f1f44fa1b981a6124e4050da21a3672fec7bb1b6dc8825af38",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/candidate-revised.json": "6e876ccc663dff1f6178d4839b35396538d8f6de00188229e5450c33d8b2e13f",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/scripts/aggregate-money-batch-r1.mjs": "0bec0dd2ebb6d1d0744451dd62b444e205c3ba2fddf92d908728c8680048c21f",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/scripts/aggregate-money-batch-r2.mjs": "c605c6bee7421ff88c55930355fb8edd393c2ba55b7c3e28983681f9631fd442",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/scripts/aggregate-money-batch-r3.mjs": "caa2a6443ca890db2fda2e5caa19d8119f86eb4ac52126c78f6aa4003602aa7d",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/scripts/check-aggregate-money-batch-r1.mjs": "6ab36febb7f28b92795f0ce4fbe8d4cfbfb6ffebde4e0260245693b6790b733b",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/scripts/check-aggregate-money-batch-r2.mjs": "1a71345487d6ce9f9ab7ccf9c4986e4f43fd7ef10cbaa70ee71c06b517decbee",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/scripts/check-aggregate-money-batch-r3.mjs": "958f2d5e62320703f69004e772c9b7471b450c51f3af4c3aa9022bc014b1a1b2",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/.pi-sessions/2026-09-28T06-44-13-642Z_cf550deb-5c7b-4873-96f8-7aa41beb516f.jsonl": "b151ea2c7c3d823dc11145a00f8c4372d1003b63d89f8dd709ef7ce4fec33d7d",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/ready.json": "91fac6a563930b06f55d5fe8e5c5dec8435f357a6809527039939adc726c9ef2",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/sessions.json": "f5f2d42028c493629daf0767db319c2b408264c049b0097267af01debf1c70f3",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/final-state.json": "27b7239e8e545ea949cc18dcb5546e03762635ecb44e2db496af1872e3e9fdaa",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-1-answer.json": "c11f913ef03ac55d6d42f4e10293af655023bbeddead4359674e16148d546c80",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-1-input.json": "f40bde9d986ad6a3ccbd22986f691bace0944b71ea5d5c313b45a9e2ca229430",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-1-state.json": "88dd4f131827f1897b0282f5fa9705372a7f8d485fd6093640252bdd79ddc735",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-2-answer.json": "04a7d0b6ae8931af8e0117e46cd9c374add72676e6aa54c90600072304f8a826",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-2-input.json": "743d93d0990771c34372a2ab04379bad81ed550d9119d1c770b5a8ec6055bbf7",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-2-state.json": "73079a071fe2603639336a6019b321ac895c00d01b89b710b355b8bf210a18c2",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-3-answer.json": "2bc152b7d18997b272ec427609df070480ad13e9229b41d13d84c0562a6553d8",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-3-input.json": "ae8a651cac03ee3be35af9467e90bc2856d3a26e51f09622777b6edcc62ad48a",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-3-state.json": "c89f05fb0f918d7eee79ad51d7573c3ce9ab73c267e870da300db5f55c225bb8",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-4-answer.json": "08da14bf4241f4d062124084afb15f4471e4a380cbbd5d68db07ec26ea7628b8",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-4-input.json": "177030f195eb014471902ae3c7d2fc8553e2044e4062070e79fe29ba6a8f0625",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/turn-4-state.json": "1b4a2e7bf12add2bf47f5efbff317f74706d7dfe6d30953cbe6c963b9206e9af",
+    "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/resources-spinetree-grok-20260928_1436/session-cf550deb-5c7b-4873-96f8-7aa41beb516f-answers.json": "016aa7ac06d8a9c70245ffc17d608cb6da11c39d4f0bba71c2d4c8182e250ca4"
+  }
+}

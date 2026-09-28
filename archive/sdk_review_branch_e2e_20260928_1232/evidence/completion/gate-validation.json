@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "completedAt": "2026-09-28T15:18:35.924689+00:00",
+  "sourceCommit": "eeea5d68ff1231be43206c4038f43dc2154d8ddf",
+  "evidenceCommitTitle": "docs: record SDK review and six staged SpineTree PoCs",
+  "stageGatesChecked": 6,
+  "sourceHashesRechecked": 45,
+  "autonomousUsabilityPassed": false,
+  "generalUsabilityEstablished": false,
+  "syntaxAndFormat": {
+    "pythonAst": 28,
+    "nodeSyntax": 27,
+    "json": 53,
+    "yaml": 1,
+    "whitespace": 145
+  },
+  "modelsOrProductTestsRerun": false,
+  "archive": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/archive/sdk_review_branch_e2e_20260928_1232",
+  "preservedTaskPath": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232",
+  "symlinkTarget": "../archive/sdk_review_branch_e2e_20260928_1232",
+  "rawInputsPreserved": true,
+  "rawInputsCommitted": false,
+  "candidateSelectionSha256": "39d5e4aaaf9be97fdfe072f749466e5fd105415fabc407de26469daa3cd0ddbf",
+  "finalReportSha256": "e08cf9f3164cadb32b8e4ed000904dc5577bb508fb2c5fa2a85edbf6a4c3ab1f",
+  "finalValidationSha256": "e16326b96e0075969fe7c3a956394e0707ee8c1496ad5923a4d74ec4ab060262",
+  "postCommitRequirement": "Compare all listed blobs plus manifest and symlink; save commit-receipt locally."
+}

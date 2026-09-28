@@ -1,0 +1,58 @@
+{
+  "passed": true,
+  "at": "2026-09-28T05:59:37.390069+00:00",
+  "provider": "scripted-no-network",
+  "samplings": 13,
+  "tools": 10,
+  "memoryVersions": [
+    1,
+    2
+  ],
+  "productionChanged": false,
+  "references": [
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/memory/offline.mjs",
+      "sha256": "e53616d49cb7383d957c656f5c143d7944b3a9af724121241ab2ddaec5bb81f2"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-before-envelope-fix.mjs",
+      "sha256": "25a00acf01c931a9aa1b28b8de4f9c913616c718bd3d6eaf4a1fae62d8618bc9"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-context-diagnostic.mjs",
+      "sha256": "f18d6ee09223a80e918b4838fcd92c7050420d56328f00d9000f922cfc03f56d"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline/failure.json",
+      "sha256": "5e54cb2223153f966032e0601cb0194b91a13012779f6bdbe181f4818cc1fae0"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-02/failure.json",
+      "sha256": "a2489de91b8690d44c84fdea1634ab38bed1b3eff61b8f1cadecfdd7f00ca6c2"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-02/context-8.json",
+      "sha256": "9b98c558e89f2d2b70c6e3b29643ed85a945279f80622b9b7ed877a2cf619d5a"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-03/result.json",
+      "sha256": "f62be4e1aab596519ed1300b5e2ee08e64da5219415575c18bd7e691feaae512"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-03/snapshots.json",
+      "sha256": "fa7441920f9f4b01418a8a5ab0becef9b7b2ba3e861b6a4a4f65c89e53181dc6"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-03/sessions/2026-09-28T05-58-46-518Z_c6aa86d9-c781-40f4-acc0-23f08bde963b.jsonl",
+      "sha256": "05b5ebcfbf5eb1de3deba61c4f5943cf0f5d17a42bec0051f381f18cd59394a2"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-03/sessions/2026-09-28T05-58-48-600Z_d15d916e-623f-44a2-8ef2-ff6d60cf2fc0.jsonl",
+      "sha256": "47141e7da2327c170f9b9483156f77bed188602dff98be3809915b832c574ea6"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-report.md",
+      "sha256": "8ea402f50cae570f9a80eac278ba9205d01fbae3f4c03ced242168eabb0e41b9"
+    }
+  ]
+}

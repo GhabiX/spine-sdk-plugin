@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/ledger.mjs",
+  "sha256": "7be05d640f36c7d2ccd13b21f3826a9094e8aa4b4d65c4cacb6197cf3d092cd6",
+  "artifacts": [
+    {
+      "name": "ledger.mjs",
+      "sha256": "7be05d640f36c7d2ccd13b21f3826a9094e8aa4b4d65c4cacb6197cf3d092cd6"
+    },
+    {
+      "name": "validation.mjs",
+      "sha256": "5b72d921957ded446d0fe9d6f9e19719e25c4841c9b45f7929fa59e84a8e3b2d"
+    },
+    {
+      "name": "aggregation.mjs",
+      "sha256": "67211062fd349f163d025183c1f406578ac88e1581c0cf232ca4fbca01ef3663"
+    }
+  ],
+  "signed": false,
+  "validationInputs": 141,
+  "aggregationBatches": 7,
+  "nonArrayCases": 6,
+  "cliCases": 1
+}

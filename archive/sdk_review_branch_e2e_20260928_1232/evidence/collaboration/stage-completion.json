@@ -1,0 +1,33 @@
+{
+  "passed": true,
+  "completedAt": "2026-09-28T11:11:08.384690+00:00",
+  "stageObligationCompleted": true,
+  "mechanismPassed": true,
+  "realAgentWorkflowPassed": true,
+  "autonomousUsabilityPassed": false,
+  "generalUsabilityEstablished": false,
+  "followup": [
+    "08-composition",
+    "09-completion"
+  ],
+  "sourceHashes": {
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/validation.json": "95d9554e0cf800b040e3e7e812998c140d7d72c613ea632802c41b02ba34b49e",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/live-result.json": "bbd6fbf93a9f0e90e06935cd18853b81316e1848960338e681012625f6a84c4e",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/live-validation.json": "8c65bd889bdf9dbbac8596712405b30bc5b1bed190470c44dc1cacc2cc135565",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/live-report.md": "ffdb6977c87a9bdf11eab564a67624c508c85fabf149d79ff4f18958eeaffafb",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/interaction-review.json": "f7b055b698289027abf9742198e167fc8c085fa90940b7c7a7d95a3023b6f198",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/runtime-close-validation.json": "edc85c229c43636b6d7aa582b25b87eb0c878e59a817df17ff2ddf79d64485d3",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/ownership-review.md": "3c1541f2a0ce5e8199456db0bea15d453737ade0d3cacbda687fb7ba5eea5ec7"
+  },
+  "documentHashes": {
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/tree.yml": "8c7a856255946dcb574f91efef84efe288b2801c98e266484bb8f077ff03650f",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/nodes/07-collaboration.md": "f0ceddca158cb71382ab3f226f73705b840ed27b6491b0147c95b6c13cb40a13",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/nodes/08-composition.md": "61e1c72777399978c87b16c0ef12179e3a20696ab918b884a37e21d9d6a6030b",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/worklog.md": "e145a4d4bf1c335eb39147f4c6ffe5b0a1f748746c0ce4a4f0a6ab4282dcd3cb"
+  },
+  "backups": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/stage-before",
+  "scriptSha256": "897b0df2e58a7901c97f24e69685abeafdb6a9ada58e868a98d3da468560f197",
+  "newSourceCommitRequired": false,
+  "whitespace": true,
+  "gitDiffCheck": true
+}

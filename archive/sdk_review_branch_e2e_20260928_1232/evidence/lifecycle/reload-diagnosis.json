@@ -1,0 +1,80 @@
+{
+  "passed": true,
+  "classification": "task-fixture event contract mismatched Pi 0.87.1; no production change",
+  "failuresPreserved": [
+    "root cursor hardcoded 0 instead of initial cursor 1",
+    "legacy context omitted isIdle",
+    "custom persisted before extension message_end duplicated source"
+  ],
+  "correction": [
+    "use actual initial scopeCursor",
+    "idle context supplies isIdle",
+    "steering message_end before persist",
+    "context-only publication persisted without extension message_end",
+    "context event before sampling"
+  ],
+  "primarySourceLines": {
+    "runtime/sdk/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js": [
+      579,
+      583,
+      588,
+      1520,
+      1530
+    ]
+  },
+  "verification": {
+    "passed": true,
+    "operations": [
+      "spine_open",
+      "spine_open",
+      "spine_next",
+      "spine_close",
+      "spine_open",
+      "spine_close",
+      "spine_close"
+    ],
+    "branches": 5,
+    "nested": true,
+    "reloadWriteFree": true,
+    "session": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/lifecycle/offline-04/sessions/2026-09-28T05-24-05-544Z_01a0e678-6726-73a2-9b2a-aa4abf049f48.jsonl",
+    "finalHead": "b1f42606c746318db07cea26503ec116dbfd9b74"
+  },
+  "references": [
+    {
+      "path": "lifecycle/offline.mjs",
+      "sha256": "31a262eb656b52365a49de68061a2c6b704ab2fa15dd4547d06c7645b023f73a"
+    },
+    {
+      "path": "lifecycle/sampling-fixture.mjs",
+      "sha256": "93db3e7a16932058141c8eaa0ba8b2303a0c810a41b85673db443396e0829b21"
+    },
+    {
+      "path": "evidence/lifecycle/offline/failure.txt",
+      "sha256": "399d21ec44dc2df6d0b99de6ef56a3e491005fccdb903ad48390121686941dd3"
+    },
+    {
+      "path": "evidence/lifecycle/offline-02/failure.txt",
+      "sha256": "1cb044751ca4f6edf8b50b634e3f3186cdb3aa59798010b9e88c49c5d33d4cc7"
+    },
+    {
+      "path": "evidence/lifecycle/offline-03/failure.txt",
+      "sha256": "53d2fbe43c7a8b6e208057059e0fc58643b1ab8641aee99fcee87cb50ab63ab9"
+    },
+    {
+      "path": "evidence/lifecycle/offline-03/fixture-before.mjs",
+      "sha256": "24c5c77e9504d560f0a23584137e4491b257f62dc0d9909431513a1ab052c738"
+    },
+    {
+      "path": "evidence/lifecycle/offline-04/result.json",
+      "sha256": "dde0fb242d1c25285ea30a69937e8d508460db7d71b56323559df9d5ed596502"
+    },
+    {
+      "path": "runtime/sdk/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js",
+      "sha256": "5ebfae51db5a900596145159428e7cb57d195af9d54a28f41d4ac8ff1bfd5729"
+    },
+    {
+      "path": "runtime/poc/src/poc/test/pi-sampling-fixture.mjs",
+      "sha256": "b81e28940882c5217281ec731edb5f4d439b5b4256e1f7fb5b0b689f6f0ab3fd"
+    }
+  ]
+}

@@ -1,0 +1,120 @@
+{
+  "schema": "spinetree-cleanup-fix-validation/v1",
+  "timestamp": "2026-09-28T04:59:27.363933+00:00",
+  "passed": true,
+  "preFix": {
+    "tests": 2,
+    "passed": 0,
+    "failed": 2,
+    "snapshotChanged": true,
+    "replacementEnded": true,
+    "releaseCalls": 1
+  },
+  "postFix": {
+    "packageTests": 153,
+    "passed": 153,
+    "failed": 0,
+    "replacementHeadAndSnapshotPreserved": true,
+    "staleReleaseCalls": 0
+  },
+  "references": [
+    {
+      "path": "packages/spinetree-plugin/src/index.ts",
+      "sha256": "c9c39f88460bda9dc9d57086b5024b208ec9bb92feee293aee9a64769a1d1fc3",
+      "bytes": 90748
+    },
+    {
+      "path": "packages/spinetree-plugin/test/rejuvenate.test.mjs",
+      "sha256": "81b87a7d5bd708a0d24fc938da575aee6e3601847756899ea178a5f576875c49",
+      "bytes": 14091
+    },
+    {
+      "path": "packages/spinetree-plugin/README.md",
+      "sha256": "854427e67407b9a377e43267ea5e97730e6b244bf47919225cf53a54e341d664",
+      "bytes": 12376
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/baseline.json",
+      "sha256": "fbccf5f842ee10ecb1c221b847f19073eb12de79580afd8225cef000607c6d48",
+      "bytes": 5187
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/review-spinetree.md",
+      "sha256": "8c256f541ee60067232ee86db3ec2a7d5e63a4d52e68240560daec231383435c",
+      "bytes": 9630
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/tree-fix/build-after-02.log",
+      "sha256": "b1cf89e8faeb294b8a1585441e10791a6c62e09bd632bb91facba170f1caaecb",
+      "bytes": 57
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/tree-fix/build-after.log",
+      "sha256": "b1cf89e8faeb294b8a1585441e10791a6c62e09bd632bb91facba170f1caaecb",
+      "bytes": 57
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/tree-fix/build-before.log",
+      "sha256": "b1cf89e8faeb294b8a1585441e10791a6c62e09bd632bb91facba170f1caaecb",
+      "bytes": 57
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/tree-fix/fail-before-state.log",
+      "sha256": "7b0d53c396a999b12cee96c56e0147c89fd4c40726e31a41359ba051f1cec8ed",
+      "bytes": 2189
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/tree-fix/fail-before.log",
+      "sha256": "0bae050b808be2c1b3b048e93579223dda1f8b47289a880bdd1ccb1160a8e241",
+      "bytes": 3394
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/tree-fix/pass-after.log",
+      "sha256": "72220809a853eae1145f151e38f800f576b758d04c1fe0309845abbee634a8cd",
+      "bytes": 1506
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/tree-fix/report.md",
+      "sha256": "2b1e7e95bc7488cad0c8d712cf4c1e05daf5b69d5c60a7d439d3c2a5142cc4c4",
+      "bytes": 3091
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/tree-fix/test-command.json",
+      "sha256": "14dbec3ae1d0e2c0a9614db8d6ac63b503fd892132a00973bf03e52be1ac88a9",
+      "bytes": 1107
+    },
+    {
+      "path": "tasks/sdk_review_branch_e2e_20260928_1232/evidence/tree-fix/tests-after.log",
+      "sha256": "92a84e8515e8184cd8b64a1d1756ee8db0fcd0ee94a18fae53728373e82c1358",
+      "bytes": 35420
+    }
+  ],
+  "links": [
+    "fail-before-state.log",
+    "fail-before.log",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/src/index.ts:1390",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/README.md:143",
+    "build-after-02.log",
+    "test-command.json",
+    "tests-after.log",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/test/rejuvenate.test.mjs:96"
+  ],
+  "diffCheck": {
+    "command": [
+      "git",
+      "diff",
+      "--check",
+      "--",
+      "packages/spinetree-plugin/src/index.ts",
+      "packages/spinetree-plugin/test/rejuvenate.test.mjs",
+      "packages/spinetree-plugin/README.md"
+    ],
+    "exitCode": 0
+  },
+  "limitations": [
+    "No model end-to-end run in this branch",
+    "External adapter must fence cleanup by original allocation identity",
+    "Existing archive/import limitation unchanged",
+    "Parent owns integration validation and commit"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "hashReferences": 32,
+  "runtimeFilesVerified": 16563,
+  "pythonAst": 2,
+  "links": 7,
+  "whitespace": true,
+  "gitDiffCheck": true,
+  "resultSha256": "517bf9e9f4c304eaf475a2115f5b27e7a73288a808176630dff56e7f042fb717",
+  "reportSha256": "afafccd81beec0c5b98a2125398e573064b7cd98ec866edc1d1e908ca4318dac"
+}

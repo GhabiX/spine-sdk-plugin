@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "completedAt": "2026-09-28T07:59:58.344046+00:00",
+  "mechanismPassed": true,
+  "realAgentWorkflowPassed": true,
+  "observedUsabilityPassed": true,
+  "generalUsabilityEstablished": false,
+  "followup": [
+    "07-collaboration",
+    "08-composition"
+  ],
+  "sourceHashes": {
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/archive-fix/validation.json": "821548571f52d685819e36b9e44a5c33790e0d6ca09b33df2cecb33d9b9cf598",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/offline-validation.json": "69155eadbaebbeb32daa0c0995b9601f48f27d2c6bc224346cb03de213138464",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/offline-report.md": "e09d79aeddd0d2f50130e7a56d963cfd955372d65fc6adf0b9f0ffa8ba3af8ee",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/live-result.json": "517bf9e9f4c304eaf475a2115f5b27e7a73288a808176630dff56e7f042fb717",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/live-validation.json": "028531b7c18ea182ee9eea4fe53c243f6e6d20b67a24e03c84cdbebde1329abd",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/live-report.md": "afafccd81beec0c5b98a2125398e573064b7cd98ec866edc1d1e908ca4318dac"
+  },
+  "documentHashes": {
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/tree.yml": "695c2e53bdbfad334a339abc510ab7ff2e64f17d43191c54c2ad8c19fa661a40",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/nodes/06-structure.md": "b9e9a5217f9dd170169670b582bf33f8c86530253704aeac46d3943206740213",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/nodes/07-collaboration.md": "8befb6e5603b01857f8021e57488e3b370deab644e226a8f4508f2aa7617a1d4",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/worklog.md": "d9c6c13b8e8c2d074e55a86b86297ba1640e7a61137f8bea18298b493e4f9a81"
+  },
+  "backups": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/stage-before"
+}

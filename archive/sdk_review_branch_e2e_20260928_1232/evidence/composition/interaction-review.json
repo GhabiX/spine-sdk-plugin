@@ -1,0 +1,111 @@
+{
+  "reviewedAt": "2026-09-28T14:33:18.544676+00:00",
+  "autonomousUsabilityPassed": false,
+  "generalUsabilityEstablished": false,
+  "turnSamplings": [
+    11,
+    5,
+    35,
+    4
+  ],
+  "turnToolCounts": {
+    "1": {
+      "bash": 4,
+      "read": 6,
+      "spine_open": 1,
+      "spinetree_read": 4,
+      "write": 3,
+      "spinetree_execute": 5
+    },
+    "2": {
+      "spine_next": 1,
+      "spine_spawn": 2,
+      "read": 6,
+      "spinetree_read": 3,
+      "bash": 1
+    },
+    "3": {
+      "write": 7,
+      "bash": 15,
+      "spinetree_execute": 10,
+      "spinetree_rejuvenate": 1,
+      "spinetree_send": 1,
+      "spinetree_dispatch": 2,
+      "spinetree_read": 11,
+      "read": 6,
+      "edit": 1,
+      "spine_open": 2,
+      "spine_next": 2,
+      "spinetree_change": 2,
+      "spine_close": 3,
+      "spine_spawn": 1
+    },
+    "4": {
+      "spine_open": 1,
+      "spinetree_read": 3,
+      "read": 2,
+      "spine_close": 1
+    }
+  },
+  "items": [
+    {
+      "turns": [
+        1,
+        2
+      ],
+      "observed": "Two premature finals at non-root cursors; claims of candidate equivalence and parent integration preceded the actual module/integration writes.",
+      "verdict": "Failed autonomous completion and inaccurate completion claims; continued after generic host prompts."
+    },
+    {
+      "turns": [
+        2
+      ],
+      "observed": "Next and Spawn in one sampling were rejected; standalone Spawn then succeeded.",
+      "verdict": "Expected incompatible-transition rejection; model tool selection error."
+    },
+    {
+      "turns": [
+        3
+      ],
+      "observed": "Same validation Branch advanced v1 to v2; recipient actually read its v1 via spinetree_read and observed feedback before allowed edits. Explicit current signed requirement superseded old unsigned evidence.",
+      "verdict": "Workflow passed; retrieval does not establish causal memory benefit or general resistance to stale instructions."
+    },
+    {
+      "turns": [
+        3
+      ],
+      "observed": "Root tool revised, local cap-100 override and sibling inheritance exercised; old check-ledger skill evidence stayed unsigned. Validation Branch moved/archived, then later obligations and Spawn completed.",
+      "verdict": "Mechanisms passed; resource-use association does not prove skill adherence. Archive retained history, not pruning or merge."
+    },
+    {
+      "turns": [
+        3
+      ],
+      "observed": "Recipient note-format AssertionError was not repaired; its later module suite passed. Three direct checker subprocess probes failed from argv mismatch; later host-convention probes succeeded.",
+      "verdict": "Preserve nested failures even when outer Bash/tool status is successful."
+    },
+    {
+      "turns": [
+        4
+      ],
+      "observed": "Without another Close reminder, read-only review used Open/Close, three Tree reads and two file reads.",
+      "verdict": "Scope discipline passed this interview; experimental seed wording cannot establish causality or erase earlier failures."
+    },
+    {
+      "turns": [
+        4
+      ],
+      "observed": "Answer correctly separated current binding null, completed operation and historical running allocation; incorrectly claimed a project-parent read, four extra note reads and broadly said child checks were not rerun by parent.",
+      "verdict": "Fact reporting failed: actual third Tree read was self-review; parent earlier ran all three suites twice, each 20/20. No tests were rerun in prompt 4."
+    }
+  ],
+  "sourceReports": [
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/composition/trajectory-review.md",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/composition/runtime-review.md"
+  ],
+  "followup": [
+    "Completion claims must match durable artifacts and checks.",
+    "Fresh-read claims must match actual tool reads; inherited memory is a separate source.",
+    "Historical skill evidence should be identified as historical when current tool behavior changes."
+  ]
+}

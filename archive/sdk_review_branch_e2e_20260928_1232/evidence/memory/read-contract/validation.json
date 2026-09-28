@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "build": true,
+  "tests": 8,
+  "hashes": {
+    "packages/spinetree-plugin/src/tool-contracts.ts": "529e3fb0767662c34be896f7c71dfdbccf2ae35046b7d223d5b65dadabcf5f44",
+    "packages/spinetree-plugin/README.md": "b5eb2e5b7a6e767a5c6fefefa73a2579f7ed74ac3a516ea34aca1cc087d6058c",
+    "packages/spinetree-plugin/dist/tool-contracts.js": "5d89b74428405c8237cc2ecb6ed00447df9bdbb3dae39025a08573d51a390d09",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/read-contract/build.log": "b1cf89e8faeb294b8a1585441e10791a6c62e09bd632bb91facba170f1caaecb",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/read-contract/test.log": "ae5974c1bdd4e4890dd9ecf9816f683a956d60acbe7ad4da4914883fa9581e7e",
+    "tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/read-contract/report.md": "735d71fb5208e1baa290acd3a7a194fa46fac7e01246d18ad583a04a96084cfc"
+  },
+  "modelComprehensionRetestPending": true
+}

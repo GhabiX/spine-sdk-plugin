@@ -1,0 +1,567 @@
+{
+  "at": "2026-09-28T05:32:54.696Z",
+  "passed": true,
+  "source": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/lifecycle-spinetree-grok-20260928_1317/reconcile.mjs",
+  "sha256": "a924f08c27045b08dbcb87a69b8e0701544861fa58eafb18639e8af7254533a6",
+  "seed": "0x73091",
+  "checks": [
+    {
+      "index": 0,
+      "rows": 0,
+      "passed": true
+    },
+    {
+      "index": 1,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 2,
+      "rows": 9,
+      "passed": true
+    },
+    {
+      "index": 3,
+      "rows": 21,
+      "passed": true
+    },
+    {
+      "index": 4,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 5,
+      "rows": 12,
+      "passed": true
+    },
+    {
+      "index": 6,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 7,
+      "rows": 2,
+      "passed": true
+    },
+    {
+      "index": 8,
+      "rows": 5,
+      "passed": true
+    },
+    {
+      "index": 9,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 10,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 11,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 12,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "index": 13,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "index": 14,
+      "rows": 16,
+      "passed": true
+    },
+    {
+      "index": 15,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 16,
+      "rows": 11,
+      "passed": true
+    },
+    {
+      "index": 17,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 18,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 19,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 20,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 21,
+      "rows": 9,
+      "passed": true
+    },
+    {
+      "index": 22,
+      "rows": 6,
+      "passed": true
+    },
+    {
+      "index": 23,
+      "rows": 9,
+      "passed": true
+    },
+    {
+      "index": 24,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 25,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 26,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 27,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 28,
+      "rows": 5,
+      "passed": true
+    },
+    {
+      "index": 29,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 30,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 31,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 32,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "index": 33,
+      "rows": 12,
+      "passed": true
+    },
+    {
+      "index": 34,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 35,
+      "rows": 5,
+      "passed": true
+    },
+    {
+      "index": 36,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 37,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 38,
+      "rows": 5,
+      "passed": true
+    },
+    {
+      "index": 39,
+      "rows": 0,
+      "passed": true
+    },
+    {
+      "index": 40,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 41,
+      "rows": 6,
+      "passed": true
+    },
+    {
+      "index": 42,
+      "rows": 12,
+      "passed": true
+    },
+    {
+      "index": 43,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 44,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 45,
+      "rows": 6,
+      "passed": true
+    },
+    {
+      "index": 46,
+      "rows": 11,
+      "passed": true
+    },
+    {
+      "index": 47,
+      "rows": 6,
+      "passed": true
+    },
+    {
+      "index": 48,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 49,
+      "rows": 15,
+      "passed": true
+    },
+    {
+      "index": 50,
+      "rows": 6,
+      "passed": true
+    },
+    {
+      "index": 51,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "index": 52,
+      "rows": 9,
+      "passed": true
+    },
+    {
+      "index": 53,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 54,
+      "rows": 17,
+      "passed": true
+    },
+    {
+      "index": 55,
+      "rows": 9,
+      "passed": true
+    },
+    {
+      "index": 56,
+      "rows": 6,
+      "passed": true
+    },
+    {
+      "index": 57,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 58,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 59,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 60,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 61,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "index": 62,
+      "rows": 9,
+      "passed": true
+    },
+    {
+      "index": 63,
+      "rows": 9,
+      "passed": true
+    },
+    {
+      "index": 64,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 65,
+      "rows": 16,
+      "passed": true
+    },
+    {
+      "index": 66,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "index": 67,
+      "rows": 9,
+      "passed": true
+    },
+    {
+      "index": 68,
+      "rows": 1,
+      "passed": true
+    },
+    {
+      "index": 69,
+      "rows": 15,
+      "passed": true
+    },
+    {
+      "index": 70,
+      "rows": 13,
+      "passed": true
+    },
+    {
+      "index": 71,
+      "rows": 13,
+      "passed": true
+    },
+    {
+      "index": 72,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 73,
+      "rows": 14,
+      "passed": true
+    },
+    {
+      "index": 74,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "index": 75,
+      "rows": 12,
+      "passed": true
+    },
+    {
+      "index": 76,
+      "rows": 11,
+      "passed": true
+    },
+    {
+      "index": 77,
+      "rows": 11,
+      "passed": true
+    },
+    {
+      "index": 78,
+      "rows": 16,
+      "passed": true
+    },
+    {
+      "index": 79,
+      "rows": 2,
+      "passed": true
+    },
+    {
+      "index": 80,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 81,
+      "rows": 11,
+      "passed": true
+    },
+    {
+      "index": 82,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "index": 83,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 84,
+      "rows": 12,
+      "passed": true
+    },
+    {
+      "index": 85,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 86,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 87,
+      "rows": 15,
+      "passed": true
+    },
+    {
+      "index": 88,
+      "rows": 1,
+      "passed": true
+    },
+    {
+      "index": 89,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 90,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 91,
+      "rows": 2,
+      "passed": true
+    },
+    {
+      "index": 92,
+      "rows": 13,
+      "passed": true
+    },
+    {
+      "index": 93,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 94,
+      "rows": 13,
+      "passed": true
+    },
+    {
+      "index": 95,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "index": 96,
+      "rows": 16,
+      "passed": true
+    },
+    {
+      "index": 97,
+      "rows": 16,
+      "passed": true
+    },
+    {
+      "index": 98,
+      "rows": 3,
+      "passed": true
+    },
+    {
+      "index": 99,
+      "rows": 16,
+      "passed": true
+    },
+    {
+      "index": 100,
+      "rows": 4,
+      "passed": true
+    },
+    {
+      "index": 101,
+      "rows": 8,
+      "passed": true
+    },
+    {
+      "index": 102,
+      "rows": 12,
+      "passed": true
+    },
+    {
+      "index": 103,
+      "rows": 7,
+      "passed": true
+    },
+    {
+      "index": 104,
+      "rows": 10,
+      "passed": true
+    },
+    {
+      "invalidInput": "undefined",
+      "passed": true
+    },
+    {
+      "invalidInput": "null",
+      "passed": true
+    },
+    {
+      "invalidInput": "0",
+      "passed": true
+    },
+    {
+      "invalidInput": "",
+      "passed": true
+    },
+    {
+      "invalidInput": "[object Object]",
+      "passed": true
+    },
+    {
+      "invalidInput": "[object Set]",
+      "passed": true
+    },
+    {
+      "name": "saved-result",
+      "passed": true
+    },
+    {
+      "name": "cli",
+      "passed": true
+    }
+  ],
+  "limitation": "Bounded independent functional check; not an official benchmark or proof over all JavaScript objects."
+}

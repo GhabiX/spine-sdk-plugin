@@ -1,0 +1,28 @@
+{
+  "completedAt": "2026-09-28T06:26:07.167262+00:00",
+  "passed": true,
+  "mechanismPassed": true,
+  "realAgentWorkflowPassed": true,
+  "autonomousUsabilityPassed": false,
+  "followup": [
+    "05-resources",
+    "08-composition"
+  ],
+  "commit": "ac887e6",
+  "sourceHashes": {
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-validation.json": "edcee27cc873b863b57653dc8a41f55a20a3b142e89d0de4731a5006dee9c87f",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/offline-report.md": "8ea402f50cae570f9a80eac278ba9205d01fbae3f4c03ced242168eabb0e41b9",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/live-result.json": "1bc1f9b72a7e51817e2c4abd9ee182fccc452e5e6c39f24c6a29e85ade5c8baa",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/live-validation.json": "a7ec5bf7ed2f9264f024e4cc3a5ae1684918a1d6dfb780e3b0e7d4926a631815",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/live-report.md": "6e0b4a043e38709650d3c7cecdc54821c6aeb54f2867343e739a3df568e88184",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/read-contract/validation.json": "1866e959576545f49b2f0650950f922146f1089444ffd5e77e584c1baa0e0cdb",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/read-contract/report.md": "735d71fb5208e1baa290acd3a7a194fa46fac7e01246d18ad583a04a96084cfc"
+  },
+  "documentHashes": {
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/tree.yml": "c356323c24d20f5bbccdf2373ef984578cbe1084d662e7c7f1305ee744704346",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/nodes/04-memory.md": "b2e35c4ff8f17c2405d78447d893826b0b93a1b6e6b63ed8264e639bd34066dc",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/nodes/05-resources.md": "56ae16de99b5d04ccde3a4e647cd6bc9f4ae2f89ee946bc0c824c643e430edda",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/worklog.md": "e077c55825d0895ac2220370dec8b465e7088cd7f08bc4ac8fdb63008023f6e5"
+  },
+  "backups": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/stage-before"
+}

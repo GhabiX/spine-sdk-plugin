@@ -1,0 +1,69 @@
+{
+  "testbed": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024",
+  "runnerSession": 31213,
+  "runnerExitCode": 0,
+  "closedAt": "2026-09-28T13:22:56.522Z",
+  "head": "71db5ebbcbfdeb2db8bdd793ab80420af1d51be3",
+  "references": [
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/ready.json",
+      "sha256": "623b0fad869daca88b32e0ffaf3173685c892c28bd45399ae6fc8429d23a84ff"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/launch.log",
+      "sha256": "2280395a641ba52f5aae8d9409f0264c5dd17fde2dec2854c6cc49ad321a6576"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/final-state.json",
+      "sha256": "18828450d930e8ff14010200e260b75270d50936944c8b36d8e3f09a8f9d51b3"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-1-input.json",
+      "sha256": "209527078f06c27cc06559594d26bdd9f22276831b56d4983ee4e1f786f096f3"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-1-answer.json",
+      "sha256": "544d8aa20dadccc6c0ba8c3e989d1f4ce05e2cd3f9208a394eec480fbc6f2b70"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-1-state.json",
+      "sha256": "39d99d98e5f3dc81a69f8e52b897c413bea748356109d87d60fbf3921f90b547"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-2-input.json",
+      "sha256": "0a0f5d601e52fdb0271ec58c34218f460c90dbbe7b66365d16078d3080421586"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-2-answer.json",
+      "sha256": "eea74296fedfc54632d0bb2a06e0c9858f2381ee4f36cad78c4cea2ce846d928"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-2-state.json",
+      "sha256": "c21bd7ca24456e5fbd337102d18c757b4720bf87d73ba1c8ac78ae9e7fb18548"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-3-input.json",
+      "sha256": "91581e52f57c0e975f0c982bc33b4f66653d0c1592c7c2caeb3c3a894391cdb4"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-3-answer.json",
+      "sha256": "57e120284b9bddf0b34036416c798bfc8ac7db9ed314413fc73672300e5f0181"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-3-state.json",
+      "sha256": "54de77b2dcabb3f4aff7a339b7893d1af0a0009bd7440ded8f31d67b6146d67c"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-4-input.json",
+      "sha256": "df0090e1e522a7470a5936596b43b84c926198dd088c1ae59c480c4bb18655af"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-4-answer.json",
+      "sha256": "aeb487692901e45e884f901efc459ef06025ff2d8a8b694279134d4284f6fbf3"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_2024/turn-4-state.json",
+      "sha256": "83abf9f4b03bad14e6b27cadcebdf007788e3cbb00d238a9b00a2613107a3a10"
+    }
+  ]
+}

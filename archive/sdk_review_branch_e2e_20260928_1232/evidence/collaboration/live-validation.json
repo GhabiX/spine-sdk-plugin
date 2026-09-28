@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "completedAt": "2026-09-28T11:08:05.880290+00:00",
+  "command": "python3 -B collaboration/finish-live.py",
+  "hashReferences": 64,
+  "runtimeEntriesVerifiedBy": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/runtime-close-validation.json",
+  "runtimeEntriesVerified": 16564,
+  "ownershipReview": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/ownership-review.md",
+  "otherIndexRowsUnchanged": true,
+  "pythonAst": 3,
+  "nodeChecks": 4,
+  "reportLinks": 11,
+  "whitespace": true,
+  "gitDiffCheck": true,
+  "resultSha256": "bbd6fbf93a9f0e90e06935cd18853b81316e1848960338e681012625f6a84c4e",
+  "reportSha256": "ffdb6977c87a9bdf11eab564a67624c508c85fabf149d79ff4f18958eeaffafb",
+  "interactionSha256": "f7b055b698289027abf9742198e167fc8c085fa90940b7c7a7d95a3023b6f198",
+  "runtimeValidationSha256": "edc85c229c43636b6d7aa582b25b87eb0c878e59a817df17ff2ddf79d64485d3",
+  "ownershipReviewSha256": "3c1541f2a0ce5e8199456db0bea15d453737ade0d3cacbda687fb7ba5eea5ec7"
+}

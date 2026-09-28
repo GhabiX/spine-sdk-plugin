@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "completedAt": "2026-09-28T07:14:08.437640+00:00",
+  "mechanismPassed": true,
+  "realAgentWorkflowPassed": true,
+  "observedUsabilityPassed": true,
+  "generalUsabilityEstablished": false,
+  "followup": [
+    "06-structure",
+    "08-composition"
+  ],
+  "sourceHashes": {
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-validation.json": "15a2526609d4716b0b24ec4a7b3a48d8dce794f79330e9e600ad562bf95488aa",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-report.md": "a056f04f27397e9b268c56a2aebedf5cfee78261ec6fe32da0c4456f9c8ef22e",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/live-result.json": "99d9e17f7fb3664b1fffc2d3b52dce9394594a45641b0442ec10d75a2e52f723",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/live-validation.json": "f2b5992916924e224f78142ff02300c86fbb5f4b4bbd255ef797ea0537578d15",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/live-report.md": "95c5bff3cd8e04cdf9790956f8428da0ddf655d68976322600a905b085130587"
+  },
+  "documentHashes": {
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/tree.yml": "77068b766d8c70f361db30ee73d2c81ea36be254ca4ff7b3e3d3180f23a40d36",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/nodes/05-resources.md": "2a677d73217d6fd1354c513e6b0313db236eb591230b860fbce88f94b4dd035d",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/nodes/06-structure.md": "618e8c2af5e5504a204f2f45438c7712b90c494fb22f5235855d29938105171b",
+    "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/worklog.md": "1829cc8991c393296e3308d3db91bae170a85771c279e16e765c6064c608628d"
+  },
+  "backups": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/stage-before"
+}

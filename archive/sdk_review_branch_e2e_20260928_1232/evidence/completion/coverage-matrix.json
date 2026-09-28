@@ -1,0 +1,183 @@
+{
+  "generatedAt": "2026-09-28T14:59:41.885723+00:00",
+  "stages": [
+    {
+      "stage": "lifecycle",
+      "gatePassed": true,
+      "mechanismPassed": true,
+      "realAgentWorkflowPassed": null,
+      "observedUsabilityPassed": null,
+      "autonomousUsabilityPassed": false,
+      "generalUsabilityEstablished": null,
+      "stageEvidence": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/lifecycle/stage-completion.json"
+    },
+    {
+      "stage": "memory",
+      "gatePassed": true,
+      "mechanismPassed": true,
+      "realAgentWorkflowPassed": true,
+      "observedUsabilityPassed": null,
+      "autonomousUsabilityPassed": false,
+      "generalUsabilityEstablished": null,
+      "stageEvidence": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/memory/stage-completion.json"
+    },
+    {
+      "stage": "resources",
+      "gatePassed": true,
+      "mechanismPassed": true,
+      "realAgentWorkflowPassed": true,
+      "observedUsabilityPassed": true,
+      "autonomousUsabilityPassed": null,
+      "generalUsabilityEstablished": false,
+      "stageEvidence": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/stage-completion.json"
+    },
+    {
+      "stage": "structure",
+      "gatePassed": true,
+      "mechanismPassed": true,
+      "realAgentWorkflowPassed": true,
+      "observedUsabilityPassed": true,
+      "autonomousUsabilityPassed": null,
+      "generalUsabilityEstablished": false,
+      "stageEvidence": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/stage-completion.json"
+    },
+    {
+      "stage": "collaboration",
+      "gatePassed": true,
+      "mechanismPassed": true,
+      "realAgentWorkflowPassed": true,
+      "observedUsabilityPassed": null,
+      "autonomousUsabilityPassed": false,
+      "generalUsabilityEstablished": false,
+      "stageEvidence": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/stage-completion.json"
+    },
+    {
+      "stage": "composition",
+      "gatePassed": true,
+      "mechanismPassed": true,
+      "realAgentWorkflowPassed": true,
+      "observedUsabilityPassed": null,
+      "autonomousUsabilityPassed": false,
+      "generalUsabilityEstablished": false,
+      "stageEvidence": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/composition/stage-completion.json"
+    }
+  ],
+  "areas": [
+    {
+      "area": "review-and-source",
+      "covered": true,
+      "evidence": [
+        "review-sdk.md",
+        "review-pi.md",
+        "review-spinetree.md",
+        "core-provenance/report.md"
+      ],
+      "result": "P1 source provenance, P2 custom steering order and P2 stale lease were fixed and verified; archive mapping and Git ref-lock fixes are committed.",
+      "limits": [
+        "WASM provenance is reconstructible from the versioned patch and hash; cross-toolchain bit-for-bit rebuild is not claimed."
+      ]
+    },
+    {
+      "area": "lifecycle",
+      "covered": true,
+      "evidence": [
+        "lifecycle/live-report.md",
+        "lifecycle/reload-diagnosis.json"
+      ],
+      "result": "Empty-node metadata, reload stability and Open/Next/Close lifecycle passed offline and in a real Pi session.",
+      "limits": [
+        "The real interview needed a Close reminder after retrospective; autonomous usability remains false."
+      ]
+    },
+    {
+      "area": "memory-and-reexecution",
+      "covered": true,
+      "evidence": [
+        "memory/live-report.md",
+        "memory/read-contract"
+      ],
+      "result": "Same Branch v1→v2, source preservation and recipient/parent reexecution checks passed; current binding and historical allocation are documented separately.",
+      "limits": [
+        "The child did not directly read the old memory in this stage; historical allocation status is display data, not an active owner."
+      ]
+    },
+    {
+      "area": "resources",
+      "covered": true,
+      "evidence": [
+        "resources/live-report.md",
+        "resources/offline-report.md"
+      ],
+      "result": "Publish, version rejection, revision update, local override and sibling consumption passed with independent host checks.",
+      "limits": [
+        "Skill association is not causal proof; one same-sampling offer was pre-transition, so later sibling evidence carries the new-version consumption claim."
+      ]
+    },
+    {
+      "area": "structure",
+      "covered": true,
+      "evidence": [
+        "structure/live-report.md",
+        "structure/offline-report.md"
+      ],
+      "result": "Move, cycle/live/archive rejection, archived historical mapping and post-archive continuation passed; memory/source/canonical mapping remained intact.",
+      "limits": [
+        "Archive is not merge, deletion or canonical-context pruning."
+      ]
+    },
+    {
+      "area": "collaboration",
+      "covered": true,
+      "evidence": [
+        "collaboration/live-report.md",
+        "collaboration/ownership-review.md"
+      ],
+      "result": "Two child assignments, typed returns, parent checks, same-Branch feedback, observed mailbox and v1→v2 update passed.",
+      "limits": [
+        "Root-only substantive review and a prompted correction keep autonomous usability false; overlapping child sessions do not prove speedup."
+      ]
+    },
+    {
+      "area": "composition",
+      "covered": true,
+      "evidence": [
+        "composition/live-report.md",
+        "composition/trajectory-review.md"
+      ],
+      "result": "Combined resources, memory/reexecution, structure, Spawn and parent acceptance passed; signed candidate checks passed.",
+      "limits": [
+        "Two premature finals, an incompatible Next+Spawn attempt, failed direct checker probes, an unrepaired note assertion and inaccurate final readback remain recorded."
+      ]
+    },
+    {
+      "area": "split-integrate-versus-merge-prune",
+      "covered": "partial",
+      "evidence": [
+        "structure/live-report.md",
+        "composition/trajectory-review.md"
+      ],
+      "result": "Obligations were split with Open/Spawn and integrated by parent acceptance; project parent move and archive were exercised.",
+      "limits": [
+        "No UUID merge, destructive subtree split, canonical prune or arbitrary concurrent bus was implemented or claimed. These are explicit coverage limits, not passing experiments."
+      ]
+    }
+  ],
+  "commits": [
+    {
+      "commit": "68fa324ad0b409bc2fff083be897186e8aca850a",
+      "purpose": "reviewed v2 SDK/Pi/SpineTree implementation and provenance"
+    },
+    {
+      "commit": "ac887e6",
+      "purpose": "document current binding versus historical allocation"
+    },
+    {
+      "commit": "7b2a0fdc292badcf1029a426c7bb6d22a593cb48",
+      "purpose": "retain archived terminal mappings"
+    },
+    {
+      "commit": "eeea5d68ff1231be43206c4038f43dc2154d8ddf",
+      "purpose": "bound Git ref-lock publication"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {join,resolve} from 'node:path';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+
+const [runArg,stateArg,revision,outArg,branch='root']=process.argv.slice(2);
+assert.ok(['initial','revised','signed'].includes(revision));
+const run=resolve(runArg),statePath=resolve(stateArg),out=resolve(outArg);
+const task=resolve(fileURLToPath(new URL('..',import.meta.url)));
+const {resourceVersion}=await import(pathToFileURL(join(task,'runtime-resources/poc/src/poc/spinetree-resources.mjs')));
+const state=JSON.parse(await readFile(statePath,'utf8'));
+const descriptors=state.branches[branch].tools.filter(t=>t.implementation?.kind==='node-script');
+assert.equal(descriptors.length,1,'Expected one published aggregation tool in the requested branch');
+const tool=descriptors[0],path=resolve(tool.implementation.path);
+assert.ok(path.startsWith(run+'/'));
+const bytes=await readFile(path),sha=createHash('sha256').update(bytes).digest('hex');
+assert.equal(sha,tool.implementation.sha256);
+const pattern=revision==='initial'?/^[0-9]{1,9}(?:\.[0-9]{1,2})?$/:revision==='revised'?/^(?:[0-9]{1,9}(?:\.[0-9]{0,2})?|\.[0-9]{1,2})$/:/^-?(?:[0-9]{1,9}(?:\.[0-9]{0,2})?|\.[0-9]{1,2})$/;
+const reference=amounts=>{let total=0n;const invalid=[];amounts.forEach((x,i)=>{if(typeof x!=='string'||!pattern.test(x)){invalid.push(i);return;}const sign=x.startsWith('-')?-1n:1n;const [a,b='']=x.replace(/^-/,'').split('.');total+=sign*(BigInt(a||'0')*100n+BigInt(b.padEnd(2,'0')));});return {totalMinor:Number(total),invalid};};
+const edge=['0','1','12.3','001.09','999999999.99','1000000000','0000000000','00.00','0.001','','.50','12.','.5','.','+1','-1.20','-.5','-12.',' 1','1 ','1e2','1\n','1..2','1.234',0,1,null,true,[],{}];
+const generated=Array.from({length:83},(_,i)=>`${(i*7919)%999999999}.${String((i*13)%100).padStart(2,'0')}`);
+const batches=[[],['1.20','2','bad'],edge,generated,Array(100).fill('999999999.99'),['.50','12.','-.5','-1.20']];
+const observations=batches.map(amounts=>{const stdout=execFileSync(process.execPath,['--input-type=module','--eval',bytes.toString('utf8'),'--',JSON.stringify({amounts})],{cwd:run,encoding:'utf8',timeout:20000});const actual=JSON.parse(stdout),expected=reference(amounts);assert.deepEqual(actual,expected);return {amounts,actual};});
+const result={passed:true,revision,branch,toolName:tool.name,version:resourceVersion(tool),path,sha256:sha,statePath,batches:batches.length,amounts:batches.reduce((n,b)=>n+b.length,0),observations,limit:'Independent entry-byte behavior check; does not itself prove framework version consumption.'};
+await writeFile(out,JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify({passed:true,revision,batches:result.batches,amounts:result.amounts,sha256:sha}));

@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "revision": "revised",
+  "cases": 115,
+  "candidate": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/memory-spinetree-grok-20260928_1352/parser.mjs",
+  "sha256": "a3684d1eba44604b0b2d2dea6b9427ff7a82597842c6b5cc98ec9491786e2f2f",
+  "failures": []
+}

@@ -1,0 +1,156 @@
+{
+  "reviewedAt": "2026-09-28T11:08:04.960045+00:00",
+  "inputCount": 4,
+  "autonomousUsabilityPassed": false,
+  "items": [
+    {
+      "topic": "workflow",
+      "turns": [
+        1,
+        2
+      ],
+      "observed": "One Spawn with two disjoint child assignments, two typed returns, parent source/test reads and 21 passing tests; later same-Branch feedback, observe, revision and 24 passing parent tests.",
+      "agentSelfReport": "Split/integrate and communicate/reexecute guidance was useful.",
+      "hostInterpretation": "The requested collaboration and feedback workflow ran successfully; the Agent selected the tool sequence.",
+      "limit": "The task explicitly requested two children and later supplied the original Branch ID. No claim of autonomous discovery or skill causality."
+    },
+    {
+      "topic": "version_and_status",
+      "turns": [
+        2,
+        3
+      ],
+      "observed": "The original Branch retains identity, parent and goal; current memory is v2, historical v1 is in reexecution.source. Replies distinguish completed state, null current binding and historical allocation status running.",
+      "agentSelfReport": "Preserved versions increased the reading burden.",
+      "hostInterpretation": "Status/version interpretation is correct in this run. The receiver did not call spinetree_read for v1.",
+      "limit": "No proof of direct receiver reasoning from old Branch memory or a causal effect of the read-contract clarification."
+    },
+    {
+      "topic": "root_retrospective",
+      "turns": [
+        3
+      ],
+      "observed": "Three samplings, eight read, one spinetree_read and one bash, no Open/Next/Close; root cursor stays [1].",
+      "agentSelfReport": "The later answer attributed this to confusing read-only artifacts with scope lifecycle.",
+      "hostInterpretation": "Substantive review occurred at root contrary to the configured branch policy. This was not an unclosed live branch or a process leak.",
+      "limit": "The suggested wording confusion is an unverified explanation, not an established root cause."
+    },
+    {
+      "topic": "prompted_correction",
+      "turns": [
+        4
+      ],
+      "observed": "An explicit factual feedback prompt was followed by one Open and one Close in three samplings.",
+      "agentSelfReport": "The Agent acknowledged the scope error and suggested clarifying read-only instructions.",
+      "hostInterpretation": "Correction succeeded after prompting; autonomous usability remains false.",
+      "limit": "Do not count this as unprompted repair or as resolution of the earlier stage03/04 omissions."
+    },
+    {
+      "topic": "coordination_wording",
+      "turns": [
+        3,
+        4
+      ],
+      "observed": "Parent decomposition, two typed returns, artifact inspection, integration and independent checks are present. One child read peer notes without changing its implementation.",
+      "agentSelfReport": "The broad no substantive collaboration wording was later narrowed to no peer mutual revisions or measured speedup.",
+      "hostInterpretation": "There is parent-child coordination; there is no observed reciprocal child knowledge update.",
+      "limit": "Overlapping child sampling intervals do not establish speedup."
+    },
+    {
+      "topic": "historical_contract",
+      "turns": [
+        2,
+        3
+      ],
+      "observed": "SPEC.md and old memories retain the nonnegative range; the explicit newer request supersedes it and the signed implementation passes checks.",
+      "agentSelfReport": "The old and new text created a reading conflict but did not block this revision.",
+      "hostInterpretation": "Historical evidence was preserved while the requested revision completed.",
+      "limit": "This explicit supersession prompt does not establish general resistance to stale instructions."
+    }
+  ],
+  "turnToolCounts": {
+    "1": {
+      "spine_open": 1,
+      "read": 8,
+      "bash": 2,
+      "spine_spawn": 1,
+      "write": 3,
+      "spine_close": 1
+    },
+    "2": {
+      "spine_open": 1,
+      "spinetree_read": 2,
+      "read": 8,
+      "spinetree_rejuvenate": 1,
+      "spinetree_send": 1,
+      "spinetree_dispatch": 1,
+      "edit": 2,
+      "bash": 1,
+      "spine_close": 1
+    },
+    "3": {
+      "read": 8,
+      "spinetree_read": 1,
+      "bash": 1
+    },
+    "4": {
+      "spine_open": 1,
+      "spine_close": 1
+    }
+  },
+  "references": [
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-1-input.json",
+      "sha256": "dc3815f018a4bccb9f9fb6c10bba5684e14e3b7b8a422188fb557365de123103"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-1-answer.json",
+      "sha256": "daad2ba71bbded350dc64693a720683ea2b9e3a097c4e8cd959bf2ecb11f5c29"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-1-state.json",
+      "sha256": "a67bc52d86559d1b74025a438f201e8211ae88d1d686ae9500cca13897de52fe"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-2-input.json",
+      "sha256": "25f7c44b8b1a8b7abfea052e08b20928cf717a95383cd8be88a562719144f099"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-2-answer.json",
+      "sha256": "2cacea472a3fbb400b4666f27e94b873479cfc7d395db9452785a8fe0fdfbe32"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-2-state.json",
+      "sha256": "94c93774db65ec94985e5a96a198856cfa6bd2ae5c4b69c50cc5b57c3d55bc99"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-3-input.json",
+      "sha256": "d4efc5806211cc8ac0ae10d6cf9c35897e3e8b071b7339bfca4820d093b97f47"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-3-answer.json",
+      "sha256": "66712313d8c1fb75f5e1dbe8e9fdb5e1bb8df28a8ee704541e4eed8b70f814ab"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-3-state.json",
+      "sha256": "e92cbdd94431c3904871b04aecbafb5e85f7a8e7d9968b698d109e5f4606904e"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-4-input.json",
+      "sha256": "db9a61de5422db7dcb9dc2356758cee7fc0a7297ce202504f65a82d6f4df687d"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-4-answer.json",
+      "sha256": "506ce896f2d39aefe32513b7dae94d1e65a40b6e2ab7a09afe5b47b5b8691675"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/collaboration-spinetree-grok-20260928_1612/turn-4-state.json",
+      "sha256": "f22a98bc9e03d93f9b9ec4a5c61b4ffdeefff53d065500b5fda38dd89d8a0a77"
+    }
+  ],
+  "followup08": [
+    "Clarify review-only artifact constraints versus normal branch lifecycle without adding new entities.",
+    "Test read-only analysis and completion without per-turn Open/Close reminders.",
+    "Keep current versus historical contracts explicit in combined resource/memory/structure work."
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/structure-spinetree-grok-20260928_1532/ledger.mjs",
+  "sha256": "755b45ab68228db302538ccd5b59e744ac581c75023d57b475cbc6d9d0a62237",
+  "validationInputs": 119,
+  "aggregationBatches": 6,
+  "nonArrayCases": 6,
+  "cliCases": 1
+}

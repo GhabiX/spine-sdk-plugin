@@ -1,0 +1,89 @@
+{
+  "passed": true,
+  "at": "2026-09-28T07:25:34.239733+00:00",
+  "tests": {
+    "focused": 5,
+    "spinetree": 158,
+    "piIntegration": 4
+  },
+  "sourceHeadBeforeCommit": "ac887e67a606ca94adb6463988332e3a470dae79",
+  "filesToCommit": [
+    "packages/spinetree-plugin/src/scopes.ts",
+    "packages/spinetree-plugin/src/tool-contracts.ts",
+    "packages/spinetree-plugin/README.md",
+    "packages/spinetree-plugin/test/scopes.test.mjs",
+    "packages/spinetree-plugin/test/scopes-archive.test.mjs"
+  ],
+  "sourceAndIntegrationDistMatch": true,
+  "references": [
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/src/scopes.ts",
+      "sha256": "ad80bb0d271b8fd9455d22a22709ac6c52c71333e72ed1af15e6f17b1d9af566"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/src/tool-contracts.ts",
+      "sha256": "a6af8782c3c0eb6459ad258822bc64b076fcf71394e568a420b01833a4bea93f"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/README.md",
+      "sha256": "8c1fcf8a2b0a748e09a794d802b42f09776006eb0937fad8fb1af7aa88b8fd31"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/test/scopes.test.mjs",
+      "sha256": "c8f81cfced2371dc85159b8a7b6fadf7f214fbe17699f6d4206a1de486cb18aa"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/test/scopes-archive.test.mjs",
+      "sha256": "49dcacb8e60bbcc4219d65b5082e2e2aac4d2d76831cad0538a762ce686bdef5"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/archive-fix/report.md",
+      "sha256": "df2b666f3edccb6fb910e0925f373e1e2762773be7244cd12762096e5b14acb4"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/archive-fix/before.log",
+      "sha256": "06e59665966b1792534380d4c8d6a2cbed14fdf1c7316563ea6d0eef273a7f46"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/archive-fix/build.log",
+      "sha256": "b1cf89e8faeb294b8a1585441e10791a6c62e09bd632bb91facba170f1caaecb"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/archive-fix/after.log",
+      "sha256": "c26c34be94c75f354fdcee592ecd5416ebe2e6df723a7fa5642aae50436085d1"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/archive-fix/tree-tests.log",
+      "sha256": "d5489aa5e62820f17dcbfa57370d3cc3be9f1cbe9a95ca6f536a329215047e90"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/archive-fix/tree-tests-02.log",
+      "sha256": "9c364f6405070e8a180e1530e7f21fad5109cae1991926342fa5eff842b7a201"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/archive-fix/pi-integration.log",
+      "sha256": "d5053bd6e56e2af5bfc1784e5d3762c3335b98e5c6a91811323e0747f0d914c6"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/structure/archive-fix/scopes.test-before.mjs",
+      "sha256": "352c03383e797484bc5a739667d2ffc942b8640798549e54f9125f953b0e2859"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/dist/index.js",
+      "sha256": "34f13bfb5a52378343e4311c77e603c74690819b34705c38852597d1a3c87f74"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/dist/loadable.js",
+      "sha256": "21b4361edffd305a5223babf7fc55fe9d0558cc7f8c518da3cdc11d57a67438a"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/dist/scopes.js",
+      "sha256": "38c84680134049ce9f3f9868a101dbd899ba57441f3bede230341b590f00fbc7"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/dist/tool-contracts.js",
+      "sha256": "d2660cfcaecf24073fc90e8ee275f0287a15f797c0575a0b6a6f9b261a028528"
+    }
+  ],
+  "modelRequests": 0
+}

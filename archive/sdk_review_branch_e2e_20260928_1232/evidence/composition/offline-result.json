@@ -1,0 +1,37 @@
+{
+  "passed": true,
+  "provider": "scripted-no-network",
+  "latestSdkCommit": "eeea5d68ff1231be43206c4038f43dc2154d8ddf",
+  "mixedFixture": {
+    "exit": 0,
+    "latestRuntime": true
+  },
+  "structureFixture": {
+    "exit": 0,
+    "result": {
+      "passed": true,
+      "provider": "scripted-no-network",
+      "samplings": 22,
+      "toolPairs": 21,
+      "expectedToolErrors": 3,
+      "expectedRevisionConflicts": 1,
+      "branches": {
+        "groupA": "86c71394-70fa-4db0-bbab-0b43e5b71b91",
+        "detail": "7f59b5df-23ee-49f7-b749-a259b5f8a207",
+        "groupB": "de4940d0-041a-44c0-be60-826d63fac27f",
+        "later": "cb1987b6-19d7-4723-a7ab-d53c8f0b056b"
+      },
+      "branchCount": 5,
+      "archiveRetainsMemoryAndSource": true,
+      "moveRetainsCanonicalSource": true,
+      "continuedAfterArchive": true,
+      "noBranchDeletion": true,
+      "allAgentsEnded": true,
+      "session": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_1943/structure-offline/sessions/2026-09-28T11-45-08-583Z_96726550-a962-4c84-9989-925f5d43d04b.jsonl",
+      "entryCount": 146,
+      "finalHead": "a2f9774a5496a3c0da10f9b57d4eb2dce874bbfd"
+    }
+  },
+  "compositionBoundary": "The two deterministic Pi fixtures share the immutable runtime but retain independent trees; no single-run cross-feature causality is claimed.",
+  "testbed": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/composition-spinetree-grok-20260928_1943"
+}

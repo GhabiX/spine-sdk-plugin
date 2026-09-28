@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "case": "Array row with valid own fields is a non-null object under SPEC",
+  "actual": {
+    "totalCents": 39,
+    "byAccount": {
+      "array-account": 39
+    },
+    "invalidIndices": [],
+    "ignoredIndices": []
+  },
+  "source": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/lifecycle-spinetree-grok-20260928_1317/reconcile.mjs",
+  "sha256": "a924f08c27045b08dbcb87a69b8e0701544861fa58eafb18639e8af7254533a6"
+}

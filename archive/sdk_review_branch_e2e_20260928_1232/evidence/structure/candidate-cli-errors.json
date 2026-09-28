@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "path": "/data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/structure-spinetree-grok-20260928_1532/ledger.mjs",
+  "sha256": "755b45ab68228db302538ccd5b59e744ac581c75023d57b475cbc6d9d0a62237",
+  "cases": [
+    {
+      "case": "missing-argument",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Usage: node ledger.mjs '<JSON rows>'\n"
+    },
+    {
+      "case": "invalid-json",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "<anonymous_script>:1\n{\n\nSyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n    at JSON.parse (<anonymous>)\n    at main (file:///data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/structure-spinetree-grok-20260928_1532/ledger.mjs:87:21)\n    at file:///data/swe/FramePilot/cachetree/scaffold/project-tree-poc/temp/testbed/structure-spinetree-grok-20260928_1532/ledger.mjs:93:3\n    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)\n\nNode.js v22.23.2\n"
+    }
+  ]
+}

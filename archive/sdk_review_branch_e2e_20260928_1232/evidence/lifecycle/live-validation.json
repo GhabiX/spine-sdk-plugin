@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "hashReferences": 25,
+  "links": 8,
+  "ast": 3,
+  "mechanismPassed": true,
+  "autonomousUsabilityPassed": false,
+  "reportSha256": "88e22c5dfff7c0a02956641ba1cb4c62363b8af01a46241773f167d57731b5bf"
+}

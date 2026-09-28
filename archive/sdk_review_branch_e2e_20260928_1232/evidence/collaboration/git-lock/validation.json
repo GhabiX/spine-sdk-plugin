@@ -1,0 +1,114 @@
+{
+  "passed": true,
+  "createdAt": "2026-09-28T09:57:25.473293+00:00",
+  "commit": "eeea5d68ff1231be43206c4038f43dc2154d8ddf",
+  "packageTests": 161,
+  "offline": {
+    "samples": 46,
+    "processes": 5,
+    "sessions": 6,
+    "spawn": 2,
+    "childReturns": 4,
+    "completedReexecutions": 1,
+    "observed": 1,
+    "memoryVersion": 2,
+    "externalProviderRequests": 0,
+    "networkAttempts": 0,
+    "faults": 0
+  },
+  "runtimeFilesVerified": 16564,
+  "productionRuntimeMatchesCommit": true,
+  "snapshotTestOnlyDeltaAcknowledged": true,
+  "realAgentCollaboration": "pending",
+  "stageStatus": "in_progress",
+  "references": [
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/collaboration/finish-lockfix.py",
+      "sha256": "aa536df244697cd8e13de209c9d752730ca092fb5a5dd5b6f414530ef934b85c"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/collaboration/prepare-lockfix.py",
+      "sha256": "8fec6947e33e52cec390f89aa7c35532665e1f373b9e531207a95aba6bcb2917"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/report.md",
+      "sha256": "0996e3428b66ba1691f9838ae74c2ad2926629abd42e0c65d33d3af568d6398f"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/diagnosis.json",
+      "sha256": "87239a3e4ad6e6dde67d269b499ccac4a56bfa094ebaaa9ab75c0950f0ade05a"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/fixture-diagnosis.json",
+      "sha256": "505e2e9e0d97a073c7fff67b425a6dc9f0d7ccadb82360fda5769aca5511c25e"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/before.log",
+      "sha256": "f794ee799a895f19339fa90e47952da2f70a8a5591f98fe23874093581b3bc26"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/before-02.log",
+      "sha256": "18ff0458e2166dbe729b7e8e144e9a6accf241d19a6487b38560817f51ea154b"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/tree-tests-final.log",
+      "sha256": "1e1ad46f4898c9677d38fe430c7acedd94c91eb4b9265f25ac4559f9efe9135b"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/offline-lockfix.log",
+      "sha256": "712146f8d9b0665468a785caa1038387d6127f592b349b1e78962f0961dfde8f"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/offline-lockfix.test.mjs",
+      "sha256": "b295e57bad2c2cb68b3ff84983aed4e1c899059b7c3556c204637351c3368ef6"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/collaboration/git-lock/runtime-manifest-lockfix.json",
+      "sha256": "7f9279ddcc46a0dbd924d03ce655e6f93b1aab2983a8a1a0fd58feba342a107c"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/temp/null/20260928_1700/collaboration-offline-lockfix/run-VEBHKr/result.json",
+      "sha256": "a2de32a6fae321fc5a3ac20ee2131e4587b7809b526e62032b30f46980f3ed31"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/temp/null/20260928_1700/collaboration-offline-lockfix/run-VEBHKr/provider-records.jsonl",
+      "sha256": "c82448168b6fff3a589f52615bb40ef2e0964151290f0070e343e1ea672d678b"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/temp/null/20260928_1700/collaboration-offline-lockfix/run-VEBHKr/sessions/2026-09-28T09-40-37-775Z_root-capabilities-mixed.jsonl",
+      "sha256": "9770bddd2fad1e097bf9a5fc521e0085f3e5e216cf0b4d07879b1926c548dab0"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/temp/null/20260928_1700/collaboration-offline-lockfix/run-VEBHKr/sessions/2026-09-28T09-40-46-214Z_33c967f1-c010-4241-abbe-ef47ca39d832.jsonl",
+      "sha256": "ca7fd3162b511a469e58b700fcff3df8f48f41b940091b6fe7664f1ca1fc3f91"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/temp/null/20260928_1700/collaboration-offline-lockfix/run-VEBHKr/sessions/spine-spawn/mixed-33c967f1-c010-4241-abbe-ef47ca39d832-10/0.jsonl",
+      "sha256": "269735b2e5e6e4bceea7c5cd1791e16a30bcc270530d4260a3be14d861645aae"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/temp/null/20260928_1700/collaboration-offline-lockfix/run-VEBHKr/sessions/spine-spawn/mixed-33c967f1-c010-4241-abbe-ef47ca39d832-10/1.jsonl",
+      "sha256": "6bf6018174f8486a7b6ac45dd824cdfa433a1f1b42b2e28dc5177d0358574624"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/temp/null/20260928_1700/collaboration-offline-lockfix/run-VEBHKr/sessions/spine-spawn/mixed-root-capabilities-mixed-5/0.jsonl",
+      "sha256": "2c10284fc531ef9d5bcd014147bfbd96a4305ec815c0acd0b9e08950f640a3fd"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/temp/null/20260928_1700/collaboration-offline-lockfix/run-VEBHKr/sessions/spine-spawn/mixed-root-capabilities-mixed-5/1.jsonl",
+      "sha256": "ad6ef70ddcb8875db26a1e0422c4fded8b1f81d4077359a8e1e833bb990b09fe"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/src/index.ts",
+      "sha256": "2b169a5a9edbcf59c63661dfa2e8b23913bbf7552acfdd41b720783913bab025"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/README.md",
+      "sha256": "8361f5081287622014cc279a9bfe1b7fe3f9671ea20d8b4ead78598ee4c566b1"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/packages/spinetree-plugin/test/git-ref-lock.test.mjs",
+      "sha256": "9e18cd1a632e3aeef47c449adf8bbdc94a364f1f64a4c983e0e54ac9d1542632"
+    }
+  ]
+}

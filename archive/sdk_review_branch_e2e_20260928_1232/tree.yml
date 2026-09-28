@@ -1,0 +1,37 @@
+version: 1
+task: sdk_review_branch_e2e_20260928_1232
+created_at: 2026-09-28 12:32:52.772341+08:00
+updated_at: '2026-09-28T15:18:35.924689+00:00'
+phase: complete
+active: root
+nodes:
+  root:
+    path: nodes/root.md
+    status: done
+  01-review:
+    path: nodes/01-review.md
+    status: done
+  02-commit:
+    path: nodes/02-commit.md
+    status: done
+  03-lifecycle:
+    path: nodes/03-lifecycle.md
+    status: done
+  04-memory:
+    path: nodes/04-memory.md
+    status: done
+  05-resources:
+    path: nodes/05-resources.md
+    status: done
+  06-structure:
+    path: nodes/06-structure.md
+    status: done
+  07-collaboration:
+    path: nodes/07-collaboration.md
+    status: done
+  08-composition:
+    path: nodes/08-composition.md
+    status: done
+  09-completion:
+    path: nodes/09-completion.md
+    status: done

@@ -1,0 +1,97 @@
+{
+  "passed": true,
+  "createdAt": "2026-09-28T06:42:50.454760+00:00",
+  "externalModelRequests": 0,
+  "samplings": 25,
+  "toolPairs": 24,
+  "versionsConsumed": 3,
+  "invocations": 6,
+  "expectedRejections": 2,
+  "piToolErrors": 1,
+  "structuredPublicationConflicts": 1,
+  "allAgentsEnded": true,
+  "sourceRevision": {
+    "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/resources/offline.mjs",
+    "before": "819811462431649362e3b417140bc5cbcdbcf2e234ac2f2795944379ec9bb493",
+    "beforePath": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-before-result-contract.mjs",
+    "after": "a48ca220f77d448bc658b70af38273ace9731afec7326546fa1ce572bf426efc"
+  },
+  "references": [
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/resources/finish-offline.py",
+      "sha256": "cf8b3567a9468250106c47895e04ae8363dea018bd7874c77176e9fadc4369fd"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/resources/offline.mjs",
+      "sha256": "a48ca220f77d448bc658b70af38273ace9731afec7326546fa1ce572bf426efc"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-before-result-contract.mjs",
+      "sha256": "819811462431649362e3b417140bc5cbcdbcf2e234ac2f2795944379ec9bb493"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-command.log",
+      "sha256": "4231d584d34a65d7ac646dc1d334cbefee4220a8352a7a38e70415eb7117fc4d"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-command-02.log",
+      "sha256": "cf096b08e32b8a3295270f94c5479fef0703458d087a053fa03bfb1ead6349f6"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline/failure.json",
+      "sha256": "a3bb079b51865d50810e931388bde9cba82aa2dbb1dea073e6b3b3184a5c33eb"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-02/result.json",
+      "sha256": "c919d77017ef258e10b7a392116b887206bf2f77b7086fb79e3aa37630edbdfa"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-02/snapshots.json",
+      "sha256": "ab8ba405c6a276f7ea50c9ec28f29def55b7e0944b7ab2154f84718d11d7750d"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-02/samples.json",
+      "sha256": "315d74b95eeb38f21aed98e89e9ad9d7fc58ea3756cb33427f4bd2242f577623"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-02/sessions/2026-09-28T06-40-30-329Z_f0720f72-43d4-490b-bc5e-924735b77542.jsonl",
+      "sha256": "db41c49a29c18b169cf72ac44498e62ceca46051c9100b3cf10eab135062a33a"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-report.md",
+      "sha256": "a056f04f27397e9b268c56a2aebedf5cfee78261ec6fe32da0c4456f9c8ef22e"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/preparation.json",
+      "sha256": "129d1f9df3eda41294d7cc02bf2cf0dbb09a2865f2913ff7062296d66722e401"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/runtime-manifest.json",
+      "sha256": "b2f6c39ceb51e28aa18e28419d1440ccc74c27b77b97f957977a855d818d0125"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/runtime-resources/poc/src/poc/spinetree-resources.mjs",
+      "sha256": "285f853d86abaf62f032121909bd0532ae7e70ffcb8acc524a8465b92b802653"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/runtime-resources/poc/src/poc/spinetree-resource-publisher.mjs",
+      "sha256": "8850cff535f1583a245ae06d8154e16bd6a02f153dd416e61f7c446e998d8347"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/runtime-resources/sdk/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js",
+      "sha256": "75da7290cd348c070328de834a810503d00fd5ff1ea2cc204786fb498bd046df"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-02/measure-2.mjs",
+      "sha256": "1e047a9ae557943cf4dc7144111775073be905ae9c2877b41175f987af66f3f4"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-02/measure-3.mjs",
+      "sha256": "5cd8914edc1bf24bfa63192872460cae102a028d36ef61dc8ebc1e948b8fbef2"
+    },
+    {
+      "path": "/data/swe/FramePilot/cachetree/scaffold/spine-sdk-plugin/tasks/sdk_review_branch_e2e_20260928_1232/evidence/resources/offline-02/measure-4.mjs",
+      "sha256": "e1ac373d73bed573cbfe8cf51c8c13628de88e51a0ab83b06947ea21b9c22ac8"
+    }
+  ]
+}
