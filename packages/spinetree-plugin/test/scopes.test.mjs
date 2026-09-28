@@ -202,7 +202,7 @@ test("one-to-one alignment reuses generated UUIDs and resolves nested parents in
   assert.deepEqual(replayed.selections, first.selections);
 });
 
-test("archived mappings cannot be reselected on a later canonical commit", async t => {
+test("reselecting an archived terminal mapping preserves its result after an omitted selection", async t => {
   const commit = await canonical(t);
   const store = new MemorySpineTreeStore(initial());
   const opened = await commit({ type: "open", summary: "work" });
@@ -211,9 +211,13 @@ test("archived mappings cannot be reselected on a later canonical commit", async
   const closed = await commit({ type: "close", memory: "done" });
   await commitSpineTreeScopes({ store, ...closed, selections: [] });
   store.change(store.head(), [{ type: "archive", branch: imported.selections[0].branch }]);
+  const archived = snapshot(store).branches[imported.selections[0].branch];
+  const next = { store, ...await commit(), selections };
+  const continued = await commitSpineTreeScopes(next);
+  assert.deepEqual(continued.selections, imported.selections);
+  assert.deepEqual(snapshot(store).branches[archived.id], archived);
   const head = store.head();
-  await assert.rejects(commitSpineTreeScopes({ store, ...await commit(), selections }), { code: "binding-conflict" });
-  assert.equal(store.head(), head);
+  assert.equal((await commitSpineTreeScopes(next)).head, head);
 });
 
 for (const home of ["root", "work"]) test(`capped mapping can rejuvenate and rebind while respecting Agent home ${home}`, async t => {

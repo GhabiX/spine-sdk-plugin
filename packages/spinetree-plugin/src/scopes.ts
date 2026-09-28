@@ -393,8 +393,8 @@ function mapScopes(snapshot: SpineTreeSnapshot, input: MappingReceipt, ownership
         throw new SpineTreeScopeError("binding-conflict", "Historical terminal Scope cannot change its ProjectBranch mapping");
       }
       // The canonical terminal node remains in its author's projection. Its
-      // durable mapping survives a new execution; it no longer owns the branch
-      // and must neither rebind it nor overwrite its newer memory.
+      // durable mapping survives reexecution or archival. It must neither
+      // rebind the branch nor overwrite its retained memory or project parent.
       validateSpawnMapping(retained, node, input);
       selectedBranches.add(retained.id);
       branchByNode.set(nodeKey, retained.id);
@@ -478,13 +478,10 @@ function retainedTerminalMapping(snapshot: SpineTreeSnapshot, input: Omit<Receip
   if (prior?.epoch !== input.record.epoch) return undefined;
   const mapped = prior.mappings.find(selection => JSON.stringify(selection.nodeId) === JSON.stringify(node.id));
   const branch = mapped === undefined ? undefined : snapshot.branches[mapped.branch];
-  if (branch === undefined || matchesScope(branch.scopeBinding, input.sessionId,
-      input.record.commit_id.thread, input.record.epoch, node.id)) return undefined;
-  if (branch.status === "archived") {
-    throw new SpineTreeScopeError("binding-conflict", "Historical Scope maps to an archived ProjectBranch");
-  }
+  if (branch === undefined || (branch.status !== "archived" && matchesScope(branch.scopeBinding, input.sessionId,
+      input.record.commit_id.thread, input.record.epoch, node.id))) return undefined;
   if (!isTerminalNode(node)) {
-    throw new SpineTreeScopeError("binding-conflict", "A Scope handed to reexecution cannot become live again");
+    throw new SpineTreeScopeError("binding-conflict", "A historical Scope retained after reexecution or archival cannot become live again");
   }
   return branch;
 }

@@ -13,7 +13,7 @@ export const toolContracts = {
     },
   },
   change: {
-    description: "Atomically apply a non-empty batch of ProjectBranch updates, moves or archives. Each change carries expectedRevision from that branch's read result. Store commits that do not change the branch are retried internally. A different branch value writes nothing and returns applied:false with the current branches. Only goal/constraints/skills/tools are editable; root/live/cyclic moves and archives containing live work are rejected.",
+    description: "Atomically apply a non-empty batch of ProjectBranch updates, moves or archives. Each change carries expectedRevision from that branch's read result. Store commits that do not change the branch are retried internally. A different branch value writes nothing and returns applied:false with the current branches. Only goal/constraints/skills/tools are editable; root/live/cyclic moves and archives containing live work are rejected. Archive retains the node, memory and historical Scope mapping; it does not remove canonical context or merge results. Move changes the project parent, not canonical Scope ancestry.",
     parameters: {
       type: "object",
       properties: {

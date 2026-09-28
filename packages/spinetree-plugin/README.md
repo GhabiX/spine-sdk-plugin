@@ -60,6 +60,16 @@ attributes are limited to `goal` (string) and `constraints`, `skills`, `tools`
 still enforce state-dependent constraints such as store CAS and receipt
 ownership. Host does not add a schema validation layer to `executeTool`.
 
+Move changes a completed branch's project parent; its canonical Scope ancestry,
+identity and memory source stay intact. Archive marks the node archived and
+retains it and its memory. Later imports preserve an already committed terminal
+Scope mapping to that node without reactivating it or replacing its memory,
+including after reexecution. This requires the existing import mapping: a new
+binding to an archived branch is still rejected, as is a live Scope that tries
+to reuse its archived mapping. Neither operation merges results, deletes nodes,
+nor prunes canonical context. Work decomposition and result integration remain
+separate lifecycle and parent-verification steps.
+
 Without the required explicit adapters, a tool retains its input schema but its
 description states that it returns `contract-only`. No implicit state is created.
 
