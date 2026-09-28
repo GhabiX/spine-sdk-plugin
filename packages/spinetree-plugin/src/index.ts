@@ -14,6 +14,7 @@ export const SPINETREE_READ_RESULT_SCHEMA = "spinetree.read.result/v2" as const;
 export const SPINETREE_CHANGE_RESULT_SCHEMA = "spinetree.change.result/v1" as const;
 export const SPINETREE_SEND_RESULT_SCHEMA = "spinetree.send.result/v2" as const;
 export const SPINETREE_OBSERVE_RESULT_SCHEMA = "spinetree.observe.result/v1" as const;
+const SPINETREE_REF_LOCK_TIMEOUT_MS = 1000;
 
 export interface SpineTreeBranch {
   readonly id: string;
@@ -902,7 +903,10 @@ export class GitSpineTreeStore implements SpineTreeChangeStore {
     }
     const nextHead = this.#commitSnapshot(stampBranchRevisions(this.readSnapshot(expectedHead), parseSnapshot(snapshot)), message, expectedHead);
     try {
-      runGit(this.root, ["update-ref", "HEAD", nextHead, expectedHead]);
+      runGit(this.root, [
+        "-c", `core.filesRefLockTimeout=${SPINETREE_REF_LOCK_TIMEOUT_MS}`,
+        "update-ref", "HEAD", nextHead, expectedHead,
+      ]);
     } catch (error) {
       const observed = this.head();
       if (observed !== expectedHead) {

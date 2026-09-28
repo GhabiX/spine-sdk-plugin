@@ -29,6 +29,9 @@ commits cannot advance state. Git initialization validates before creating its
 directory. Registry, mailbox, Scope imports and extra application metadata are
 preserved. This package starts new trees; it does not migrate old snapshots.
 Keep historical trees with their original package. Read does not modify state.
+Git snapshot publication waits up to 1000 ms for a ref lock. The update still
+uses the expected HEAD as its compare-and-swap value; if another writer wins
+while this commit waits, the store reports a stale HEAD instead of overwriting it.
 
 Use the same snapshot store for tree reads and the persistent registry/mailbox
 adapters. `GitSpineTreeAgentRegistry` also accepts `MemorySpineTreeStore` for
