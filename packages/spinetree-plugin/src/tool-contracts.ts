@@ -4,7 +4,7 @@ const branch = { ...nonEmptyString, description: "ProjectBranch ID" };
 
 export const toolContracts = {
   read: {
-    description: "Read a ProjectBranch, inheritance, children and its active Agent binding from one fixed HEAD. revision is the change token and changes only when that ProjectBranch value changes. binding.agentId identifies a possible send recipient; binding may be null and does not establish transport reachability.",
+    description: "Read a ProjectBranch, inheritance, children and its active Agent binding from one fixed HEAD. revision is the change token and changes only when that ProjectBranch value changes. Top-level binding is the current non-ended registry entry; binding.agentId identifies a possible send recipient, but does not establish transport reachability. binding may be null. branch.reexecution.binding is the historical allocation snapshot, including its status; use branch.reexecution.state for that operation's progress and top-level binding for current Agent availability.",
     parameters: {
       type: "object",
       properties: { branch },

@@ -15,6 +15,13 @@ Use `result.binding.agentId` as `spinetree_send.to`. AgentId and PiSessionId are
 different identities. The lookup reflects the captured HEAD; send still checks
 the recipient's current registry state.
 
+`branch.reexecution.binding` preserves the allocation snapshot, including the
+status recorded at allocation. It is not a live registry lookup. A completed
+reexecution can therefore retain `status: "running"` in that historical record
+while top-level `binding` is null. Use `branch.reexecution.state` for the
+operation's progress and top-level `binding` for current Agent availability.
+Keep the historical ownership fields intact for receipt and lease validation.
+
 The project store accepts only snapshots with `schema: "spinetree.snapshot/v2"`
 and a `branches` map. Any own `agents` field, including an empty map, is rejected.
 Memory and Git stores apply the same validation; invalid initialization and
