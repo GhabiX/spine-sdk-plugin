@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createRequire } from "node:module";
+
+import { encodeInit, SPINE_SDK_SCHEMA } from "../dist/index.js";
 
 import { createNodeSpineRuntime, validateSpineToolInput } from "../dist/node.js";
 
@@ -45,5 +48,37 @@ test("Node runtime delegates canonical prompt composition and preserves feature-
   } finally {
     enabled.dispose();
     disabled.dispose();
+  }
+});
+
+
+test("packaged v2 runtime rejects old initialization and commands without changing its plan", () => {
+  const { SpineRuntime } = createRequire(import.meta.url)("../wasm/node/spine_wasm.cjs");
+  assert.throws(
+    () => new SpineRuntime(JSON.stringify({ schema: "spine-sdk/v1", thread: "old-client" })),
+    (error) => String(error).includes("unsupported_schema"),
+  );
+  const runtime = new SpineRuntime(encodeInit({ thread: "protocol-pair" }));
+  try {
+    const command = (schema) => JSON.parse(runtime.dispatch(JSON.stringify({
+      schema, request: { type: "preview" },
+    })));
+    const before = command(SPINE_SDK_SCHEMA);
+    assert.equal(before.ok, true);
+    assert.deepEqual(before.result.context_plan, {
+      schema: "spine.context.plan.v2", thread: "protocol-pair", epoch: 0, cells: [],
+    });
+    const rejected = command("spine-sdk/v1");
+    assert.deepEqual(rejected, {
+      schema: SPINE_SDK_SCHEMA,
+      ok: false,
+      error: {
+        code: "unsupported_schema",
+        message: `expected ${SPINE_SDK_SCHEMA}, received spine-sdk/v1`,
+      },
+    });
+    assert.deepEqual(command(SPINE_SDK_SCHEMA), before);
+  } finally {
+    runtime.free();
   }
 });

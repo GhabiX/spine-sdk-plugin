@@ -113,14 +113,14 @@ fn prepare_requires_matching_persisted_transaction_before_install() {
 fn json_dispatch_rejects_wrong_schema_without_mutating_runtime() {
     let mut runtime = runtime();
     let response: Value = serde_json::from_str(
-        &runtime.dispatch_json(r#"{"schema":"spine-sdk/v2","request":{"type":"preview"}}"#),
+        &runtime.dispatch_json(r#"{"schema":"spine-sdk/v1","request":{"type":"preview"}}"#),
     )
     .expect("response json");
     assert_eq!(response["ok"], false);
     assert_eq!(response["error"]["code"], "unsupported_schema");
 
     let valid: Value = serde_json::from_str(
-        &runtime.dispatch_json(r#"{"schema":"spine-sdk/v1","request":{"type":"preview"}}"#),
+        &runtime.dispatch_json(r#"{"schema":"spine-sdk/v2","request":{"type":"preview"}}"#),
     )
     .expect("response json");
     assert_eq!(valid["ok"], true);

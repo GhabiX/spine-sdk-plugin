@@ -71,7 +71,7 @@ test("project can load without collaboration, and a missing dependency does not 
   host.register(canonicalPlugin);
   host.register(createSpineTreePlugin({
     load: ["@spinetree/project"],
-    store: new MemorySpineTreeStore({ branches: {} }),
+    store: new MemorySpineTreeStore({ schema: "spinetree.snapshot/v2", branches: {} }),
   }));
   await host.activateAll();
   assert.deepEqual(host.listTools(), ["spinetree_change", "spinetree_read", "spinetree_rejuvenate"]);

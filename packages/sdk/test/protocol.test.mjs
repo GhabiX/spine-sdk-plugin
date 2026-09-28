@@ -31,7 +31,7 @@ test("runtime client sends a schema-tagged request", async () => {
 
 test("codec rejects unknown schemas and unsafe integers", () => {
   assert.throws(
-    () => decodeResponse('{"schema":"spine-sdk/v2","ok":true,"result":{"type":"preview"}}'),
+    () => decodeResponse('{"schema":"spine-sdk/v1","ok":true,"result":{"type":"preview"}}'),
     SpineProtocolError,
   );
   assert.throws(
@@ -57,5 +57,32 @@ test("runtime errors remain typed protocol errors", async () => {
   await assert.rejects(() => client.execute({ type: "preview" }), {
     name: "SpineProtocolError",
     code: "invalid_state",
+  });
+});
+
+
+test("v2 client rejects a v1 runtime response before consuming its recipe", async () => {
+  const client = new SpineRuntimeClient({
+    dispatch(encoded) {
+      assert.deepEqual(JSON.parse(encoded), {
+        schema: SPINE_SDK_SCHEMA,
+        request: { type: "preview" },
+      });
+      return JSON.stringify({
+        schema: "spine-sdk/v1",
+        ok: true,
+        result: {
+          type: "preview",
+          context_plan: {
+            schema: "spine.context.plan.v1", thread: "old", epoch: 0,
+            cells: [], memory_slots: [],
+          },
+          projection: { nodes: [], cursor: [1], visible_context: [], last_boundary: null },
+        },
+      });
+    },
+  });
+  await assert.rejects(client.execute({ type: "preview" }), {
+    name: "SpineProtocolError", code: "invalid_envelope",
   });
 });

@@ -33,7 +33,7 @@ const snapshot = {
       status: "live",
     },
   },
-  agents: {},
+  schema: "spinetree.snapshot/v2",
 };
 
 test("MemoryAgentRegistry enforces the explicit status transition matrix", () => {

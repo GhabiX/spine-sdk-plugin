@@ -120,6 +120,17 @@ export class PiSamplingLifecycle {
     }
   }
 
+  /** Admit durable host additions that Pi appends without extension message events. */
+  async observePersistedSources(sources: readonly { boundary: number; message: PiAgentMessage }[]): Promise<void> {
+    for (const source of sources) {
+      if (source.boundary < this.#nextBoundary) continue;
+      if (source.boundary !== this.#nextBoundary) {
+        throw new PiSamplingLifecycleError("Persisted Pi source tail is discontinuous");
+      }
+      await this.observeMessage(source.message);
+    }
+  }
+
   async sourceSnapshot(): Promise<SourceSnapshot> {
     return this.#guard(() => this.#adapter.sourceSnapshot());
   }

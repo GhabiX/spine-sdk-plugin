@@ -18,7 +18,9 @@ if [ "$version" != "wasm-bindgen 0.2.127" ]; then
 fi
 
 repo_root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-cargo build --manifest-path "$repo_root/Cargo.toml" -p spine-wasm --release --target wasm32-unknown-unknown
+node "$repo_root/scripts/verify-core-source.mjs"
+cargo build --locked --manifest-path "$repo_root/Cargo.toml" -p spine-wasm --release --target wasm32-unknown-unknown
+node "$repo_root/scripts/verify-core-source.mjs"
 out_dir="$repo_root/packages/sdk/wasm/node"
 mkdir -p "$out_dir"
 "$WASM_BINDGEN" \

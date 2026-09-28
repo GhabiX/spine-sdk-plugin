@@ -11,7 +11,7 @@ import {
 
 async function fixture(kind, t) {
   const store = kind === "git"
-    ? GitSpineTreeStore.initialize(await mkdtemp(join(tmpdir(), "spinetree-message-")), { branches: {}, agents: {} })
+    ? GitSpineTreeStore.initialize(await mkdtemp(join(tmpdir(), "spinetree-message-")), { branches: {}, schema: "spinetree.snapshot/v2" })
     : undefined;
   const mailbox = store ? new GitSpineTreeMailbox(store) : new MemorySpineTreeMailbox();
   const registry = store ? new GitSpineTreeAgentRegistry(store) : new MemoryAgentRegistry();
@@ -138,7 +138,7 @@ test("Git CAS retries a late acknowledgement against an observation committed by
 
 test("legacy delivered receipts without a retained token still allow explicit observation", async () => {
   const root = await mkdtemp(join(tmpdir(), "spinetree-legacy-observe-"));
-  const store = GitSpineTreeStore.initialize(root, { branches: {}, agents: {} });
+  const store = GitSpineTreeStore.initialize(root, { branches: {}, schema: "spinetree.snapshot/v2" });
   const mailbox = new GitSpineTreeMailbox(store);
   const queued = await mailbox.enqueue({ to: "b", from: null, message: "legacy" });
   await mailbox.delivered(queued.id, (await mailbox.lease(queued.id)).leaseId);

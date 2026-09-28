@@ -32,12 +32,11 @@ test("DSH message transport preserves native messages and canonical projections"
     transactionId: "tx",
     projection: { nodes: [], cursor: [], visible_context: [], last_boundary: 1 },
     contextPlan: {
-      schema: "spine.context.plan.v1",
+      schema: "spine.context.plan.v2",
       thread: "s",
       epoch: 0,
       source_snapshot_digest: "source",
       plan_digest: "plan",
-      memory_slots: [],
       cells: [
         {
           type: "source",

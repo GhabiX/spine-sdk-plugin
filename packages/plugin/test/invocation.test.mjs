@@ -167,15 +167,12 @@ test("live tsx execArgv plus script reconstructs the parent image", () => {
   });
 });
 
-test("PI cli.ts --help from a foreign cwd needs execArgv; TSX_TSCONFIG_PATH is inherited", () => {
+test("PI cli.ts --help from a foreign cwd retains execArgv and TSX_TSCONFIG_PATH", () => {
   assert.equal(existsSync(cli), true);
   const env = { ...process.env, TSX_TSCONFIG_PATH: join(piRoot, "tsconfig.json") };
-  const broken = spawnSync(process.execPath, [cli, "--help"], {
-    encoding: "utf8",
-    cwd: here,
-    env,
-  });
-  assert.notEqual(broken.status, 0);
+  // Recent Node versions can run this TypeScript entry without a loader.
+  // Verify the inherited invocation actually works; bare-entry failure is not
+  // part of the invocation contract.
   const loader = pathToFileURL(loaderFile).href;
   const invocation = resolvePiInvocation(
     {

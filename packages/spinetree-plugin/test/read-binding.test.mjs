@@ -13,7 +13,7 @@ const branch = {
   id: "root", parent: null, goal: "project", constraints: [], skills: [], tools: [],
   memory: null, memoryVersion: 0, memorySource: null, status: "live",
 };
-const snapshot = { branches: { root: branch }, agents: {} };
+const snapshot = { branches: { root: branch }, schema: "spinetree.snapshot/v2" };
 const binding = { agentId: "a", sessionId: "pi-a", branch: "root", scope: "scope-a", status: "running" };
 async function hostFor(options, sessions) {
   const host = new SpinePluginHost({ sessions });
@@ -40,7 +40,7 @@ test("persisted lifecycle binding is discoverable and routes read -> send -> obs
   assert.equal(read.head, head);
   assert.deepEqual(await host.executeTool("spinetree_read", { branch: "root" }), read);
   assert.equal(reloaded.head(), head);
-  assert.deepEqual(reloaded.readSnapshot(head).agents, {});
+  assert.equal(Object.hasOwn(reloaded.readSnapshot(head), "agents"), false);
   const sent = await host.executeTool("spinetree_send", { to: read.binding.agentId, message: "hello" });
   assert.equal(sent.receipt.status, "queued");
   assert.deepEqual(calls, []);
@@ -79,11 +79,8 @@ test("binding stays at captured HEAD even when lifecycle advances during read", 
   await host.dispose();
 });
 
-test("read ignores legacy agents and other branches, and rejects ambiguous active bindings", async () => {
-  const base = {
-    ...snapshot,
-    agents: { legacy: { id: "legacy", working: "root", live: ["root"], status: "running" } },
-  };
+test("read ignores ended and other-branch bindings, and rejects ambiguous active bindings", async () => {
+  const base = snapshot;
   for (const registry of [undefined, {}, { a: { ...binding, status: "ended" } }, { a: { ...binding, branch: "other" } }]) {
     const host = await hostFor({ store: new MemorySpineTreeStore({ ...base, registry }) });
     assert.equal((await host.executeTool("spinetree_read", { branch: "root" })).binding, null);

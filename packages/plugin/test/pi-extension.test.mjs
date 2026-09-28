@@ -103,6 +103,7 @@ function extensionContext(sessionId = "pi-session", options = {}) {
     context: {
       mode: "tui",
       hasUI: true,
+      isIdle: () => true,
       signal: undefined,
       cwd: "/tmp",
       model: { provider: "google", id: "gemini-3.8-flash" },
@@ -211,6 +212,97 @@ function assistant(content, stopReason = "stop") {
   };
 }
 
+test("durable context-only custom messages enter canonical context once and preserve replay order", async () => {
+  const branch = [];
+  const pi = mockPi();
+  const ctx = extensionContext("persisted-custom", { branch });
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const custom = { type: "custom_message", id: "custom-1", customType: "ordinary-resource",
+    content: "version one", display: false, timestamp: "2026-09-26T00:00:00.000Z" };
+  branch.push(custom); // Pi's context-only flush does not call extension message_end.
+  const first = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  const second = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  assert.deepEqual(first, second);
+  assert.equal(first.messages.filter(message => message.customType === "ordinary-resource").length, 1);
+  branch.push({ ...custom, id: "custom-2", content: "version two" });
+  const next = user("feedback");
+  await pi.emit("message_end", { type: "message_end", message: next }, ctx.context);
+  branch.push({ type: "message", id: "user-1", message: next });
+  const live = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  assert.deepEqual(live.messages.map(message => message.content), ["version one", "version two", "[U1]\nfeedback"]);
+  const recovered = mockPi();
+  createPiExtension()(recovered.api);
+  await recovered.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  assert.deepEqual(await recovered.emit("context", { type: "context", messages: [] }, ctx.context), live);
+  assert.equal(ctx.aborts, 0);
+});
+
+test("custom steering after a silent durable message preserves sources and committed replay", async (t) => {
+  const branch = [];
+  const pi = mockPi();
+  const ctx = extensionContext("silent-then-custom", { branch });
+  const append = pi.api.appendEntry.bind(pi.api);
+  pi.api.appendEntry = (customType, data) => {
+    append(customType, data);
+    branch.push({ type: "custom", id: `archive-${pi.entries.length}`, customType, data });
+  };
+  let liveRuntime;
+  let commit;
+  createPiExtension({
+    onSessionReady(info) { liveRuntime = info.runtime; },
+    onSamplingCommit(info) { commit = info.commit; },
+  })(pi.api);
+  t.after(() => pi.emit("session_shutdown", { type: "session_shutdown" }, ctx.context));
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+
+  const silent = { type: "custom_message", id: "silent", customType: "resource-update",
+    content: "silent A", display: false, timestamp: "2026-09-26T00:00:00.000Z" };
+  // Pi flushes context-only A after turn_end without an extension message event.
+  branch.push(silent);
+  const queued = { role: "custom", customType: "resource-update", content: "queued B",
+    display: false, timestamp: 2 };
+  // Both custom steer and followUp queues deliver this event before persistence
+  // and before the next context hook in Pi 0.87.1.
+  await pi.emit("message_end", { type: "message_end", message: queued }, ctx.context);
+  branch.push({ ...silent, id: "queued", content: queued.content });
+  const projected = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  const admitted = (await liveRuntime.client.execute({ type: "source_snapshot" })).source;
+  await t.test("canonical source characters agree with the displayed entry order", () => {
+    assert.deepEqual(admitted.cells.map(cell => cell.item.Message.message.content), ["silent A", "queued B"]);
+    assert.deepEqual(projected.messages.map(message => message.content), ["silent A", "queued B"]);
+  });
+
+  await pi.emit("before_provider_request", { type: "before_provider_request", payload: {} }, ctx.context);
+  const done = assistant([{ type: "text", text: "acknowledged both updates" }]);
+  await pi.emit("message_end", { type: "message_end", message: done }, ctx.context);
+  branch.push({ type: "message", id: "done", message: done });
+  await pi.emit("turn_end", { type: "turn_end", turnIndex: 0, message: done }, ctx.context);
+  assert.equal(ctx.aborts, 0);
+  assert.equal(commit.type, "committed");
+  assert.deepEqual(pi.entries.filter(entry => entry.customType === "spine.archive.v1")
+    .map(entry => entry.data.record.type), ["sampling_started", "sampling_commit"]);
+  const committedSource = (await liveRuntime.client.execute({ type: "source_snapshot" })).source;
+  const live = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+
+  await t.test("the persisted sampling receipt replays the same sources and projection", async () => {
+    const recovered = mockPi();
+    const recoveredCtx = extensionContext("silent-then-custom", { branch });
+    let recoveredRuntime;
+    createPiExtension({ onSessionReady(info) { recoveredRuntime = info.runtime; } })(recovered.api);
+    t.after(() => recovered.emit("session_shutdown", { type: "session_shutdown" }, recoveredCtx.context));
+    await recovered.emit("session_start", { type: "session_start", reason: "resume" }, recoveredCtx.context);
+    assert.equal(recoveredCtx.aborts, 0, JSON.stringify(recoveredCtx.notifications));
+    assert.deepEqual((await recoveredRuntime.client.execute({ type: "source_snapshot" })).source, committedSource);
+    const replayed = await recovered.emit("context", { type: "context", messages: [] }, recoveredCtx.context);
+    // Pi persists custom entries with its own timestamp; compare message meaning,
+    // while the source snapshot above checks exact canonical identities/content.
+    const projectedMeaning = ({ messages }) => messages.map(({ role, customType, content, display }) =>
+      ({ role, customType, content, display }));
+    assert.deepEqual(projectedMeaning(replayed), projectedMeaning(live));
+  });
+});
+
 test("default export is a loadable Pi extension with the canonical tools", () => {
   const pi = mockPi();
   extension(pi.api);
@@ -253,7 +345,7 @@ test("canonical Pi extension is also a SpineHost owner plugin", async () => {
   assert.ok(pi.handlers.has("before_provider_request"));
 });
 
-test("before_agent_start installs the canonical Spine instruction", async () => {
+test("before_agent_start composes the configured prompt and registers its tool catalog", async () => {
   const pi = mockPi();
   const ctx = extensionContext();
   createPiExtension()(pi.api);
@@ -263,7 +355,7 @@ test("before_agent_start installs the canonical Spine instruction", async () => 
     type: "before_agent_start",
     prompt: "Implement the task",
     systemPrompt: "base system prompt",
-    systemPromptOptions: {},
+    systemPromptOptions: { appendSystemPrompt: "host append instructions" },
   };
   await pi.emit("before_agent_start", event, ctx.context);
 
@@ -275,13 +367,19 @@ test("before_agent_start installs the canonical Spine instruction", async () => 
   try {
     assert.equal(
       event.systemPromptOptions.appendSystemPrompt,
-      expectedRuntime.extendSystemPrompt(""),
+      expectedRuntime.extendSystemPrompt("host append instructions"),
     );
-    assert.match(event.systemPromptOptions.appendSystemPrompt, /spine_open/);
-    assert.doesNotMatch(event.systemPromptOptions.appendSystemPrompt, /spine\.open/);
-    assert.match(
-      event.systemPromptOptions.appendSystemPrompt,
-      /A user message is not the granularity of a SpineBranch/,
+    assert.deepEqual(
+      [...pi.tools.values()].map(({ name, description, parameters }) => ({
+        name,
+        description,
+        parameters: JSON.parse(JSON.stringify(parameters)),
+      })),
+      expectedRuntime.toolCatalog().map(({ id, description, parameters }) => ({
+        name: `spine_${id}`,
+        description,
+        parameters,
+      })),
     );
   } finally {
     expectedRuntime.dispose();
@@ -434,6 +532,120 @@ test("session_tree resets a prior lifecycle fault", async () => {
   await pi.emit("message_end", { type: "message_end", message: user("recovered") }, ctx.context);
   const recovered = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
   assert.deepEqual(recovered.messages, [user("[U1]\nrecovered")]);
+});
+
+async function finishHeadlessSampling(pi, ctx) {
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  await pi.emit("message_end", { type: "message_end", message: user("private task content") }, ctx.context);
+  await pi.emit(
+    "before_provider_request",
+    { type: "before_provider_request", payload: { input: ["private provider payload"] } },
+    ctx.context,
+  );
+  const done = assistant([{ type: "text", text: "done" }]);
+  await pi.emit("message_end", { type: "message_end", message: done }, ctx.context);
+  await pi.emit("turn_end", { type: "turn_end", turnIndex: 0, message: done }, ctx.context);
+}
+
+test("headless post-commit fault is recorded once before abort with its typed cause", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext("headless-fault");
+  ctx.context.hasUI = false;
+  const order = [];
+  const append = pi.api.appendEntry.bind(pi.api);
+  pi.api.appendEntry = (type, data) => {
+    append(type, data);
+    if (type === "spine.fault.v1") order.push("fault");
+  };
+  const abort = ctx.context.abort;
+  ctx.context.abort = () => {
+    order.push("abort");
+    abort();
+  };
+  const conflict = Object.assign(new Error("Cannot replace a live mapping"), {
+    name: "SpineTreeScopeError",
+    code: "binding-conflict",
+    payload: "private error payload",
+  });
+  createPiExtension({
+    onSamplingCommit() {
+      throw new Error("ProjectTree import failed", { cause: conflict });
+    },
+  })(pi.api);
+
+  await finishHeadlessSampling(pi, ctx);
+  assert.deepEqual(order, ["fault", "abort"]);
+  const faults = () => pi.entries.filter((entry) => entry.customType === "spine.fault.v1");
+  assert.equal(faults().length, 1);
+  const diagnostic = faults()[0].data;
+  assert.equal(diagnostic.schema, "spine.fault/v1");
+  assert.equal(diagnostic.hook, "turn_end");
+  assert.equal(diagnostic.stage, "sampling_commit_observer");
+  assert.equal(diagnostic.sessionId, "headless-fault");
+  assert.ok(diagnostic.transactionId.startsWith("headless-fault-commit-"));
+  assert.deepEqual(diagnostic.cursor, [1]);
+  assert.ok(Number.isInteger(diagnostic.lastBoundary));
+  assert.ok(Number.isFinite(diagnostic.timestamp));
+  assert.deepEqual(diagnostic.errors, [
+    { name: "Error", message: "ProjectTree import failed" },
+    { name: "SpineTreeScopeError", code: "binding-conflict", message: "Cannot replace a live mapping" },
+  ]);
+  assert.equal(JSON.stringify(diagnostic).includes("private"), false);
+  assert.equal(JSON.stringify(diagnostic).includes("stack"), false);
+  await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  assert.equal(faults().length, 1);
+  assert.deepEqual(order, ["fault", "abort", "abort"]);
+  assert.deepEqual(ctx.notifications, []);
+  await pi.emit("session_shutdown", { type: "session_shutdown" }, ctx.context);
+});
+
+test("headless successful post-commit hook produces no fault diagnostic", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext("headless-success");
+  ctx.context.hasUI = false;
+  let commits = 0;
+  createPiExtension({ onSamplingCommit() { commits += 1; } })(pi.api);
+  await finishHeadlessSampling(pi, ctx);
+  assert.equal(commits, 1);
+  assert.equal(ctx.aborts, 0);
+  assert.deepEqual(pi.entries.filter((entry) => entry.customType === "spine.fault.v1"), []);
+  await pi.emit("session_shutdown", { type: "session_shutdown" }, ctx.context);
+});
+
+test("headless fault persistence failure preserves original fault and abort", async (t) => {
+  const pi = mockPi();
+  const ctx = extensionContext("headless-store-failure");
+  ctx.context.hasUI = false;
+  const errors = [];
+  t.mock.method(console, "error", (text) => errors.push(JSON.parse(text)));
+  const append = pi.api.appendEntry.bind(pi.api);
+  let attempts = 0;
+  pi.api.appendEntry = (type, data) => {
+    if (type === "spine.fault.v1") {
+      attempts += 1;
+      throw Object.assign(new Error("Session append failed"), { code: "EIO" });
+    }
+    append(type, data);
+  };
+  createPiExtension({
+    onSamplingCommit() {
+      throw Object.assign(new Error("Original binding failure"), { code: "binding-conflict" });
+    },
+  })(pi.api);
+  await finishHeadlessSampling(pi, ctx);
+  assert.equal(ctx.aborts, 1);
+  assert.equal(attempts, 1);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].errors[0].code, "binding-conflict");
+  assert.equal(errors[0].persistenceErrors[0].code, "EIO");
+  const admission = await pi.emit("tool_call", {
+    type: "tool_call", toolCallId: "after-fault", toolName: "spine_open", input: { goal: "continue" },
+  }, ctx.context);
+  assert.deepEqual(admission, { block: true, reason: "Spine durability is faulted: Original binding failure" });
+  await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  assert.equal(attempts, 1);
+  assert.equal(ctx.aborts, 2);
+  await pi.emit("session_shutdown", { type: "session_shutdown" }, ctx.context);
 });
 
 test("user abort of a host tool does not latch a fault on a stray follow-up turn_end", async () => {
@@ -1356,6 +1568,8 @@ test("Pi compaction previews the current model context before summarizing", asyn
   createPiExtension()(pi.api);
   await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
   await pi.emit("message_end", { type: "message_end", message: arrived }, ctx.context);
+  // Pi persists message_end before constructing the compaction snapshot.
+  ctx.context.sessionManager.getBranch = () => [entry];
   const result = await pi.emit(
     "session_before_compact",
     {
@@ -1401,6 +1615,9 @@ test("Pi context applies null and non-null context edits by entry id", async () 
     timestamp: "2",
     message: omitted,
   });
+  const original = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  assert.deepEqual(original.messages, [{ ...kept, content: "[U1]\nkeep-user" }, { ...omitted, content: "[U2]\nOMITTED" }]);
+  const commitsBeforeEdits = structuredClone(pi.entries);
   entries.push({
     type: "context_edit",
     id: "edit-omit",
@@ -1423,6 +1640,8 @@ test("Pi context applies null and non-null context edits by entry id", async () 
   assert.equal(text.includes("OMITTED"), false);
   assert.equal(text.includes("keep-user"), false);
   assert.equal(text.includes("rewritten-user"), true);
+  assert.deepEqual(context.messages, [{ ...kept, content: "[U1]\nrewritten-user" }]);
+  assert.deepEqual(pi.entries, commitsBeforeEdits, "host edits do not create commits");
   assert.equal(ctx.aborts, 0);
 });
 
@@ -1986,4 +2205,99 @@ test("widget registration failure does not poison canonical session initializati
   assert.equal(offered, false);
   await pi.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx.context);
   assert.equal(ctx.aborts, 0);
+});
+
+
+test("Pi compact rematerializes an edited cached view and admits silent durable messages", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const original = user("original evidence");
+  const branch = [{ type: "message", id: "user", parentId: null, timestamp: "1", message: original }];
+  ctx.context.sessionManager.getBranch = () => branch;
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  assert.deepEqual((await pi.emit("context", { type: "context", messages: [] }, ctx.context)).messages, [{ ...original, content: "[U1]\noriginal evidence" }]);
+  branch.push({ type: "context_edit", id: "edit", parentId: "user", timestamp: "2", targetId: "user", replacement: { content: [{ type: "text", text: "revised evidence" }] } });
+  branch.push({ type: "custom_message", id: "silent", parentId: "edit", timestamp: "2026-01-01T00:00:00Z", customType: "test.silent", content: "durable tail", display: false });
+  let requested;
+  ctx.context.modelRegistry = { async complete(_model, request) {
+    requested = request;
+    return { content: [{ type: "text", text: "summary" }] };
+  } };
+  const result = await pi.emit("session_before_compact", {
+    type: "session_before_compact", branchEntries: [...branch], reason: "manual", signal: new AbortController().signal,
+    preparation: { firstKeptEntryId: "user", tokensBefore: 12, settings: { reserveTokens: 1000 }, messagesToSummarize: [original], turnPrefixMessages: [] },
+  }, ctx.context);
+  assert.equal(result.compaction.summary, "summary");
+  assert.deepEqual(requested.messages.slice(0, -1), [
+    { ...original, content: [{ type: "text", text: "[U1]\nrevised evidence" }] },
+    { role: "user", content: [{ type: "text", text: "durable tail" }], timestamp: Date.parse("2026-01-01T00:00:00Z") },
+  ]);
+  assert.equal(ctx.aborts, 0);
+});
+
+test("Pi compact cancels before its barrier when a message arrives during summary", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  const { entry } = compactFixture();
+  const branch = [entry];
+  ctx.context.sessionManager.getBranch = () => branch;
+  createPiExtension()(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const snapshot = [...branch];
+  ctx.context.modelRegistry = { async complete() {
+    branch.push({ type: "custom_message", id: "late", parentId: entry.id, timestamp: "2026-01-01T00:00:00Z", customType: "test.silent", content: "late evidence", display: false });
+    return { content: [{ type: "text", text: "stale summary" }] };
+  } };
+  const result = await pi.emit("session_before_compact", {
+    type: "session_before_compact", branchEntries: snapshot, reason: "manual", signal: new AbortController().signal,
+    preparation: { firstKeptEntryId: entry.id, tokensBefore: 12, settings: { reserveTokens: 1000 }, messagesToSummarize: [], turnPrefixMessages: [] },
+  }, ctx.context);
+  assert.deepEqual(result, { cancel: true });
+  assert.equal(pi.entries.some(entry => ["spine.compact.v1", "spine.fault.v1"].includes(entry.customType)), false);
+  const context = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  assert.deepEqual(context.messages.map(message => message.role), ["user", "custom"]);
+  assert.equal(context.messages[1].content, "late evidence");
+  assert.equal(ctx.aborts, 0);
+});
+
+
+test("Pi shutdown cancels an active operation before disposing its runtime", async () => {
+  const pi = mockPi();
+  const ctx = extensionContext();
+  let runtime;
+  createPiExtension({ onSessionReady(info) { runtime = info.runtime; } })(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const events = [];
+  const dispose = runtime.dispose.bind(runtime);
+  runtime.dispose = () => { events.push("dispose"); dispose(); };
+  ctx.context.isIdle = () => false;
+  ctx.context.abort = () => { events.push("abort"); };
+  await pi.emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx.context);
+  assert.deepEqual(events, ["abort", "dispose"]);
+});
+
+test("Pi request materialization failure aborts instead of returning the last published messages", async () => {
+  const pi = mockPi();
+  const original = user("evidence before failure");
+  const ctx = extensionContext("materialization-fault", {
+    branch: [{ type: "message", id: "user", message: original }],
+  });
+  let runtime;
+  createPiExtension({ onSessionReady(info) { runtime = info.runtime; } })(pi.api);
+  await pi.emit("session_start", { type: "session_start", reason: "new" }, ctx.context);
+  const cached = await pi.emit("context", { type: "context", messages: [] }, ctx.context);
+  assert.deepEqual(cached.messages, [user("[U1]\nevidence before failure")]);
+  const entriesBefore = structuredClone(pi.entries);
+  runtime.nodePrompt = () => { throw new Error("materialization unavailable"); };
+  const failed = await pi.emit("context", { type: "context", messages: cached.messages }, ctx.context);
+  assert.deepEqual(failed, { messages: [] });
+  assert.equal(ctx.aborts, 1);
+  const faults = pi.entries.filter(entry => entry.customType === "spine.fault.v1");
+  assert.equal(faults.length, 1);
+  assert.equal(faults[0].data.hook, "context");
+  assert.deepEqual(faults[0].data.errors, [{ name: "Error", message: "materialization unavailable" }]);
+  await assert.rejects(pi.emit("before_agent_start", { type: "before_agent_start", systemPromptOptions: {} }, ctx.context), /faulted/);
+  assert.deepEqual(pi.entries.filter(entry => entry.customType !== "spine.fault.v1"), entriesBefore);
+  await pi.emit("session_shutdown", { type: "session_shutdown" }, ctx.context);
 });

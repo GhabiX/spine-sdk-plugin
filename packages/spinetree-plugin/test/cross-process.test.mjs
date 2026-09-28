@@ -30,7 +30,7 @@ const snapshot = {
       status: "capped",
     },
   },
-  agents: {},
+  schema: "spinetree.snapshot/v2",
 };
 
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));

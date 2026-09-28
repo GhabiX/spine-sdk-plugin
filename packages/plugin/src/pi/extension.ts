@@ -23,7 +23,7 @@ import {
   createNodeSpineRuntime,
   type NodeSpineRuntime,
 } from "@spinejit/spine-sdk/node";
-import type { FinishSamplingResult } from "../controller.js";
+import type { FinishSamplingResult, PublishedContext } from "../controller.js";
 import { Type } from "typebox";
 
 import type { HostContextEnvelope } from "../host-adapter.js";
@@ -142,7 +142,8 @@ export interface CreatePiSpinePluginOptions extends CreatePiExtensionOptions {
 interface ActivePiSession {
   lifecycle: PiSamplingLifecycle;
   runtime: NodeSpineRuntime;
-  latestContext: HostContextEnvelope<PiAgentMessage>;
+  latestContext: PublishedContext;
+  materializeMessages(branch: readonly PiBranchEntry[]): PiAgentMessage[];
 }
 
 interface MutableSessionSlot {
@@ -178,11 +179,20 @@ function activatePiExtension(
   options: CreatePiExtensionOptions,
   publishCommitted?: (record: PostCommitRecord) => Promise<void>,
 ): void {
+  // Shared with pi-compact-fallback. Check before registering any Spine tools
+  // or hooks. Pi invalidates this runtime-scoped subscription on reload.
+  const compactionOwnerEvent = "pi:compaction-owner:v1";
+  const claim: { owner?: string } = {};
+  pi.events.emit(compactionOwnerEvent, claim);
+  if (claim.owner !== undefined) {
+    throw new Error(`Pi compaction plugin conflict: @spinejit/spine-plugin cannot load with ${claim.owner}. Enable only one compaction plugin.`);
+  }
+  const configToml = loadPiSpineConfigToml();
   const runtimeFactory = options.runtimeFactory ?? {
     create: (thread: string) => createNodeSpineRuntime({
       thread,
       features: ["jit", "spawn"],
-      configToml: loadPiSpineConfigToml(),
+      configToml,
     }),
   };
 
@@ -202,7 +212,7 @@ function activatePiExtension(
     treeDisplay: new SpineTreeDisplay(),
     samplingPrefix: null,
   };
-  registerSpineTools(pi, slot, options.childInvocation);
+  registerSpineTools(pi, slot, configToml, options.childInvocation);
   pi.events.on(SPINE_TREE_VIEW_REQUEST, (request) => {
     if (slot.current === null || slot.fault !== null) return;
     slot.treeDisplay.offer(request, slot.generation, slot.current.latestContext.projection);
@@ -216,14 +226,18 @@ function activatePiExtension(
     options.onSamplingCommit,
     publishCommitted,
   );
+  pi.events.on(compactionOwnerEvent, (query) => {
+    (query as { owner?: string }).owner = "@spinejit/spine-plugin";
+  });
 }
 
 function registerSpineTools(
   pi: ExtensionAPI,
   slot: MutableSessionSlot,
+  configToml: string,
   childInvocation?: PiChildInvocationFactory,
 ): void {
-  for (const tool of loadCanonicalSpineTools()) {
+  for (const tool of loadCanonicalSpineTools(configToml)) {
     if (tool.name === "spine_spawn") {
       pi.registerTool({
         name: tool.name,
@@ -384,7 +398,7 @@ function spawnRecoveryPolicy(
   };
 }
 
-function loadCanonicalSpineTools(): Array<{
+function loadCanonicalSpineTools(configToml: string): Array<{
   name: string;
   label: string;
   description: string;
@@ -393,7 +407,7 @@ function loadCanonicalSpineTools(): Array<{
   const runtime = createNodeSpineRuntime({
     thread: "pi-tool-catalog",
     features: ["jit", "spawn"],
-    configToml: loadPiSpineConfigToml(),
+    configToml,
   });
   try {
     return runtime.toolCatalog().map((tool) => ({
@@ -450,7 +464,7 @@ function registerLifecycleHandlers(
       registerChildReturnTool(pi);
       pi.setActiveTools(childActiveTools(pi));
     }
-    await guardHook(slot, ctx, async () => {
+    await guardHook(pi, slot, ctx, { hook: "session_start", stage: "initialize_session" }, async () => {
       slot.fault = null;
       slot.notified = false;
       slot.compactionHandled = false;
@@ -462,7 +476,7 @@ function registerLifecycleHandlers(
     });
   });
   pi.on("session_tree", async (_event, ctx) => {
-    await guardHook(slot, ctx, async () => {
+    await guardHook(pi, slot, ctx, { hook: "session_tree", stage: "initialize_session" }, async () => {
       slot.fault = null;
       slot.notified = false;
       slot.compactionHandled = false;
@@ -474,6 +488,10 @@ function registerLifecycleHandlers(
     });
   });
   pi.on("session_shutdown", (_event, ctx) => {
+    // Direct/RPC reload may run while a context handler is suspended. Cancel
+    // while its host ctx is still active; after invalidation ctx.abort throws.
+    if (!ctx.isIdle()) ctx.abort();
+    slot.fault = abortError("Pi Spine session shut down");
     slot.generation += 1;
     slot.compactionHandled = false;
     slot.compactionAbortCleanup?.();
@@ -484,20 +502,32 @@ function registerLifecycleHandlers(
     slot.treeDisplay.reset();
   });
   pi.on("message_end", async (event, ctx) => {
-    await guardHook(slot, ctx, async () => {
-      await (await requireSession(slot)).lifecycle.observeMessage(event.message as PiAgentMessage);
+    await guardHook(pi, slot, ctx, { hook: "message_end", stage: "observe_message" }, async () => {
+      const session = await requireSession(slot);
+      // A user or custom steering/follow-up message can follow a context-only message that Pi
+      // persisted without notifying extension handlers. Admit that durable tail
+      // first so live source order agrees with replay. Pi persists this event later.
+      if (event.message.role === "user" || event.message.role === "custom") {
+        await observePersistedPiSources(session, ctx);
+      }
+      await session.lifecycle.observeMessage(event.message as PiAgentMessage);
     });
   });
   pi.on("context", async (_event, ctx): Promise<{ messages?: ContextEvent["messages"] }> => {
     try {
       const session = await requireSession(slot);
+      await observePersistedPiSources(session, ctx);
       await session.lifecycle.previewContext();
+      assertCurrentSession(slot, session);
+      const messages = session.materializeMessages(ctx.sessionManager.getBranch());
       renderSpineTree(ctx, slot, session);
       return {
-        messages: structuredClone(session.latestContext.messages) as unknown as ContextEvent["messages"],
+        messages: structuredClone(messages) as unknown as ContextEvent["messages"],
       };
     } catch (cause) {
-      faultAndAbort(slot, ctx, cause);
+      // Shutdown already cancelled this operation, and its ctx is now stale.
+      if (slot.current === null && isAbortError(slot.fault)) return { messages: [] };
+      faultAndAbort(pi, slot, ctx, { hook: "context", stage: "preview_context" }, cause);
       return { messages: [] };
     }
   });
@@ -505,13 +535,14 @@ function registerLifecycleHandlers(
     messages: projectPiSpineMessages(event.messages as unknown as PiAgentMessage[]) as unknown as ContextEvent["messages"],
   }));
   pi.on("before_provider_request", async (event, ctx) => {
-    await guardHook(slot, ctx, async () => {
+    await guardHook(pi, slot, ctx, { hook: "before_provider_request", stage: "begin_sampling" }, async () => {
       slot.samplingPrefix = structuredClone(ctx.sessionManager.getBranch());
       await (await requireSession(slot)).lifecycle.beginSampling(event.payload);
     });
   });
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     const session = await requireSession(slot);
+    await observePersistedPiSources(session, ctx);
     if (event.systemPromptOptions === undefined) return;
     event.systemPromptOptions.appendSystemPrompt = session.runtime.extendSystemPrompt(
       event.systemPromptOptions.appendSystemPrompt ?? "",
@@ -534,7 +565,7 @@ function registerLifecycleHandlers(
       if (cause instanceof PiSamplingLifecycleError && cause.cause instanceof SpineToolInputError) {
         return { block: true, reason: cause.cause.message };
       }
-      faultAndAbort(slot, ctx, cause);
+      faultAndAbort(pi, slot, ctx, { hook: "tool_call", stage: "register_tool_call" }, cause);
       if ((PI_SPINE_TOOL_NAMES as readonly string[]).includes(event.toolName)) {
         return { block: true, reason: "Spine lifecycle fault", terminate: true };
       }
@@ -542,12 +573,13 @@ function registerLifecycleHandlers(
     }
   });
   pi.on("tool_result", async (event, ctx) => {
-    await guardHook(slot, ctx, async () => {
+    await guardHook(pi, slot, ctx, { hook: "tool_result", stage: "finish_tool_call" }, async () => {
       await (await requireSession(slot)).lifecycle.finishToolCall(event.toolCallId, !event.isError);
     });
   });
   pi.on("turn_end", async (event, ctx) => {
-    await guardHook(slot, ctx, async () => {
+    const boundary = { hook: "turn_end", stage: "finish_sampling" };
+    await guardHook(pi, slot, ctx, boundary, async () => {
       const commit = await (await requireSession(slot)).lifecycle.finishTurn({
         message: event.message as PiAgentMessage,
         aborted: ctx.signal?.aborted === true,
@@ -558,6 +590,7 @@ function registerLifecycleHandlers(
         commit,
         entries: ctx.sessionManager.getBranch(),
       };
+      boundary.stage = "sampling_commit_publication";
       const publication = await onSamplingCommitPublication?.(commitInfo);
       if (publication !== undefined) {
         if (publishCommitted === undefined) {
@@ -576,6 +609,7 @@ function registerLifecycleHandlers(
           sampling.epoch,
           sampling.commit_id.value,
         ].join(":");
+        boundary.stage = "publish_committed";
         await publishCommitted({
           schema: "spine-tree-post-commit/v1",
           effectType: publication.effectType,
@@ -599,7 +633,9 @@ function registerLifecycleHandlers(
           ...(publication.binding === undefined ? {} : { binding: publication.binding }),
         });
       }
+      boundary.stage = "sampling_commit_observer";
       await onSamplingCommit?.(commitInfo);
+      boundary.stage = "render_tree";
       renderSpineTree(ctx, slot, await requireSession(slot));
     });
   });
@@ -613,16 +649,18 @@ function registerLifecycleHandlers(
     try {
       session = await requireSession(slot);
     } catch (cause) {
-      faultAndAbort(slot, ctx, cause);
+      faultAndAbort(pi, slot, ctx, { hook: "session_before_compact", stage: "require_session" }, cause);
       return { cancel: true };
     }
     let summaryResult: { summary: string; usage?: CompactionResult["usage"] };
     let retained: { messages: PiAgentMessage[]; entryIds: (string | null)[] };
     try {
-      summaryResult = await summarizePiCompaction(session, event, ctx);
+      summaryResult = await summarizePiCompaction(slot, session, event, ctx);
       if (event.signal?.aborted === true) {
         return { cancel: true };
       }
+      assertCurrentSession(slot, session);
+      assertCompactionBranch(event, ctx);
       retained = retainedPiMessages(event);
     } catch (cause) {
       if (isPiCompactionHostAbort(event, cause)) return { cancel: true };
@@ -640,6 +678,8 @@ function registerLifecycleHandlers(
         ...retained.messages,
       ];
       const source = await session.lifecycle.sourceSnapshot();
+      assertCurrentSession(slot, session);
+      assertCompactionBranch(event, ctx);
       const barrier = buildCompactBarrier(source, replacementMessages.length);
       await session.lifecycle.compact(barrier, replacementMessages, [null, ...retained.entryIds]);
       slot.compactionHandled = true;
@@ -648,7 +688,7 @@ function registerLifecycleHandlers(
         if (!slot.compactionHandled) return;
         slot.compactionHandled = false;
         slot.compactionAbortCleanup = null;
-        faultAndAbort(slot, ctx, new Error("Pi compaction aborted after Spine compact completed"));
+        faultAndAbort(pi, slot, ctx, { hook: "session_before_compact", stage: "post_compact_abort" }, new Error("Pi compaction aborted after Spine compact completed"));
       };
       event.signal.addEventListener("abort", onAbort, { once: true });
       slot.compactionAbortCleanup = () => event.signal.removeEventListener("abort", onAbort);
@@ -669,7 +709,7 @@ function registerLifecycleHandlers(
       if (!slot.compactionHandled && isPiCompactionHostAbort(event, cause)) {
         return { cancel: true };
       }
-      faultAndAbort(slot, ctx, cause);
+      faultAndAbort(pi, slot, ctx, { hook: "session_before_compact", stage: "compact" }, cause);
       return { cancel: true };
     }
   });
@@ -681,20 +721,23 @@ function registerLifecycleHandlers(
       return;
     }
     if (slot.fault !== null) return;
-    faultAndAbort(slot, ctx, new Error("Pi native compaction completed without Spine interception"));
+    faultAndAbort(pi, slot, ctx, { hook: "session_compact", stage: "validate_interception" }, new Error("Pi native compaction completed without Spine interception"));
   });
 }
 
 async function summarizePiCompaction(
+  slot: MutableSessionSlot,
   session: ActivePiSession,
   event: SessionBeforeCompactEvent,
   ctx: ExtensionContext,
 ): Promise<{ summary: string; usage?: CompactionResult["usage"] }> {
   const model = ctx.model;
   if (model === undefined) throw new Error("Pi compaction requires an active model");
+  await observePiBranchSources(session, ctx.sessionManager.getSessionId(), event.branchEntries);
   await session.lifecycle.previewContext();
+  assertCurrentSession(slot, session);
   const visible = projectPiSpineMessages(
-    session.latestContext.messages.filter((message) => !isPiHostSystemMessage(message)),
+    session.materializeMessages(event.branchEntries).filter((message) => !isPiHostSystemMessage(message)),
   );
   const tools = currentPiToolDeclarations(event.branchEntries);
   const previous = event.preparation.previousSummary === undefined
@@ -800,6 +843,38 @@ function projectedPiMessages(branch: readonly PiBranchEntry[]): Map<string, PiAg
   return projected;
 }
 
+async function observePersistedPiSources(session: ActivePiSession, ctx: ExtensionContext): Promise<void> {
+  await observePiBranchSources(session, ctx.sessionManager.getSessionId(), ctx.sessionManager.getBranch());
+}
+
+async function observePiBranchSources(
+  session: ActivePiSession,
+  sessionId: string,
+  branch: readonly PiBranchEntry[],
+): Promise<void> {
+  const plan = buildPiReplayPlan({
+    currentSessionId: sessionId,
+    branch,
+    messagesForEntry: (entry) => sessionEntryToContextMessages(entry as SessionEntry) as PiAgentMessage[],
+  });
+  await session.lifecycle.observePersistedSources(plan.sources);
+}
+
+// Host edits can change the rendered view without changing the core plan.
+// Bind entry ids and project that view from one synchronous branch snapshot.
+function materializeFromBranch(
+  publication: PublishedContext,
+  bindings: PiSourceBindings,
+  branch: readonly PiBranchEntry[],
+  nodePrompt: string,
+): PiAgentMessage[] {
+  assignMissingPiSourceEntryIds(bindings, branch);
+  return materializePiContext(publication, bindings, {
+    nodePrompt,
+    projectedMessages: projectedPiMessages(branch),
+  });
+}
+
 function assignMissingPiSourceEntryIds(
   bindings: PiSourceBindings,
   branch: readonly PiBranchEntry[],
@@ -856,12 +931,7 @@ async function initializeSession(
               pi.appendEntry(type, entry);
             },
             async materializeContext(context) {
-              const branch = ctx.sessionManager.getBranch() as PiBranchEntry[];
-              assignMissingPiSourceEntryIds(bindings, branch);
-              return materializePiContext(context, bindings, {
-                nodePrompt: runtime?.nodePrompt() ?? "",
-                projectedMessages: projectedPiMessages(branch),
-              });
+              return materializeFromBranch(context, bindings, ctx.sessionManager.getBranch(), runtime?.nodePrompt() ?? "");
             },
             async replaceContext(context) {
               const installed = structuredClone(context);
@@ -882,13 +952,16 @@ async function initializeSession(
     if (runtime === null || latestContext === null) {
       throw new Error("Pi Spine recovery did not install runtime context");
     }
-    const initialContext = latestContext as HostContextEnvelope<PiAgentMessage>;
+    const initialContext: PublishedContext = latestContext as HostContextEnvelope<PiAgentMessage>;
     const active = {
       lifecycle: new PiSamplingLifecycle(recovered.adapter, recovered.bindings, recovered.source, {
         contextReady: true,
       }),
       runtime,
       latestContext: initialContext,
+      materializeMessages(branch: readonly PiBranchEntry[]) {
+        return materializeFromBranch(initialContext, recovered.bindings, branch, runtime!.nodePrompt());
+      },
     };
     if (onSessionReady && runtimeThread !== null) {
       await onSessionReady({
@@ -1135,6 +1208,21 @@ function controlToolAdmission(
   return undefined;
 }
 
+function assertCurrentSession(slot: MutableSessionSlot, session: ActivePiSession): void {
+  if (slot.current !== session) throw new Error("Pi Spine session changed while preparing context");
+  const fault = slot.fault ?? session.lifecycle.fault;
+  if (fault !== null) throw new Error("Pi Spine extension is faulted", { cause: fault });
+}
+
+function assertCompactionBranch(event: SessionBeforeCompactEvent, ctx: ExtensionContext): void {
+  // A manual summary can await the provider while an idle custom message is
+  // persisted. Cancel before the compact barrier rather than swallowing its tail.
+  const branch = ctx.sessionManager.getBranch();
+  if (branch.at(-1)?.id !== event.branchEntries.at(-1)?.id) {
+    throw abortError("Pi session changed during compaction; no compact was committed");
+  }
+}
+
 async function requireSession(slot: MutableSessionSlot): Promise<ActivePiSession> {
   if (slot.fault !== null) throw new Error("Pi Spine extension is faulted", { cause: slot.fault });
   if (slot.current !== null) return slot.current;
@@ -1167,21 +1255,73 @@ async function beginSessionInitialization(
   }
 }
 
+interface PiHookBoundary {
+  hook: string;
+  stage: string;
+}
+
 async function guardHook(
+  pi: ExtensionAPI,
   slot: MutableSessionSlot,
   ctx: ExtensionContext,
+  boundary: PiHookBoundary,
   operation: () => Promise<void>,
 ): Promise<void> {
   try {
     await operation();
   } catch (cause) {
-    faultAndAbort(slot, ctx, cause);
+    faultAndAbort(pi, slot, ctx, boundary, cause);
   }
 }
 
-function faultAndAbort(slot: MutableSessionSlot, ctx: ExtensionContext, cause: unknown): void {
-  if (process.env.SPINE_DEBUG === "1") console.error(JSON.stringify({ type: "canonical_fault", message: cause instanceof Error ? cause.message : String(cause), cause: cause instanceof Error && cause.cause instanceof Error ? cause.cause.message : undefined, stack: cause instanceof Error ? cause.stack : undefined }));
+/** Diagnostic only: never archive payloads, model context, or arbitrary error properties. */
+function faultErrors(cause: unknown): { name: string; code?: string; message: string }[] {
+  const errors: { name: string; code?: string; message: string }[] = [];
+  for (let depth = 0; depth < 4 && cause !== undefined; depth += 1) {
+    const code = cause instanceof Error && "code" in cause && typeof cause.code === "string"
+      ? cause.code.slice(0, 128) : undefined;
+    errors.push({
+      name: cause instanceof Error ? cause.name.slice(0, 128) : "NonErrorThrow",
+      ...(code === undefined ? {} : { code }),
+      message: (cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "Non-Error thrown value").slice(0, 2048),
+    });
+    cause = cause instanceof Error ? cause.cause : undefined;
+  }
+  return errors;
+}
+
+function faultAndAbort(
+  pi: ExtensionAPI,
+  slot: MutableSessionSlot,
+  ctx: ExtensionContext,
+  boundary: PiHookBoundary,
+  cause: unknown,
+): void {
+  const firstFault = slot.fault === null;
   slot.fault ??= cause;
+  if (firstFault) {
+    const diagnostic = {
+      schema: "spine.fault/v1",
+      ...boundary,
+      timestamp: Date.now(),
+      errors: faultErrors(cause),
+    };
+    try {
+      const projection = slot.current?.latestContext.projection;
+      pi.appendEntry("spine.fault.v1", {
+        ...diagnostic,
+        sessionId: ctx.sessionManager.getSessionId(),
+        transactionId: slot.current?.latestContext.transactionId ?? null,
+        ...(projection === undefined ? {} : {
+          cursor: [...projection.cursor],
+          lastBoundary: projection.last_boundary,
+        }),
+      });
+    } catch (persistenceError) {
+      // Keep the original latch and cancellation even when the session store fails.
+      console.error(JSON.stringify({ ...diagnostic, persistenceErrors: faultErrors(persistenceError) }));
+    }
+  }
   ctx.abort();
   if (!slot.notified && ctx.hasUI) {
     slot.notified = true;

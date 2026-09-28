@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ export * from "./loadable.js";
 import type { SpineTreeScopeBinding, SpineTreeScopeWatermark } from "./scopes.js";
 export * from "./scopes.js";
 
+export const SPINETREE_SNAPSHOT_SCHEMA = "spinetree.snapshot/v2" as const;
 export const SPINETREE_READ_RESULT_SCHEMA = "spinetree.read.result/v2" as const;
 export const SPINETREE_CHANGE_RESULT_SCHEMA = "spinetree.change.result/v1" as const;
 export const SPINETREE_SEND_RESULT_SCHEMA = "spinetree.send.result/v2" as const;
@@ -25,22 +27,32 @@ export interface SpineTreeBranch {
   readonly memorySource: unknown;
   readonly status: string;
   readonly scopeBinding?: SpineTreeScopeBinding;
+  readonly reexecution?: SpineTreeReexecution;
   /** Changes only when this ProjectBranch value changes. Absent means 0. */
   readonly revision?: number;
   readonly [key: string]: unknown;
 }
 
-export interface SpineTreeAgent {
+/** A new execution of a ProjectBranch; canonical scopes themselves are never reopened. */
+export interface SpineTreeReexecution {
+  readonly schema: "spinetree.reexecution/v1";
   readonly id: string;
-  readonly working: string;
-  readonly live: readonly string[];
-  readonly status: string;
-  readonly [key: string]: unknown;
+  readonly state: "reserved" | "running" | "completed" | "failed";
+  readonly parent: string;
+  readonly sourceHead: string;
+  readonly source: {
+    readonly memory: unknown;
+    readonly memoryVersion: number;
+    readonly memorySource: unknown;
+    readonly scopeBinding?: SpineTreeScopeBinding;
+  };
+  readonly binding?: SpineTreeWorkingBinding;
+  readonly terminalSource?: unknown;
 }
 
 export interface SpineTreeSnapshot {
+  readonly schema: typeof SPINETREE_SNAPSHOT_SCHEMA;
   readonly branches: Readonly<Record<string, SpineTreeBranch>>;
-  readonly agents: Readonly<Record<string, SpineTreeAgent>>;
   readonly registry?: Readonly<Record<string, SpineTreeAgentBinding>>;
   readonly mailbox?: SpineTreeMailboxState;
   readonly scopeImports?: Readonly<Record<string, SpineTreeScopeWatermark>>;
@@ -134,6 +146,8 @@ export interface SpineTreeExclusiveAgentRegistry {
 
 export interface SpineTreeWorkingAgentRegistry extends SpineTreeAgentLifecycleRegistry, SpineTreeAgentRegistryReader {
   registerWorkingExclusive(binding: SpineTreeWorkingBinding): void | Promise<void>;
+  transitionWorking(agentId: string, leaseId: string, expected: SpineTreeAgentStatus, status: SpineTreeAgentStatus):
+    SpineTreeWorkingBinding | Promise<SpineTreeWorkingBinding>;
   updateWorking(
     agentId: string,
     leaseId: string,
@@ -187,12 +201,16 @@ export class MemoryAgentRegistry implements SpineTreeWorkingAgentRegistry, Spine
     this.registerExclusive(binding);
   }
 
+  transitionWorking(agentId: string, leaseId: string, expected: SpineTreeAgentStatus, status: SpineTreeAgentStatus): SpineTreeWorkingBinding {
+    const next = transitionWorkingBinding(this.#bindings.get(agentId), leaseId, expected, status);
+    this.#bindings.set(agentId, next);
+    return clone(next);
+  }
+
   updateWorking(agentId: string, leaseId: string, update: SpineTreeWorkingUpdate): SpineTreeWorkingBinding {
     const binding = this.#bindings.get(agentId);
     if (binding === undefined) throw new SpineTreeRegistryError("unknown-agent", `Unknown Agent ${agentId}`);
-    assertWorkingLease(binding, leaseId);
-    validateWorkingUpdate(update, binding.epoch);
-    const next = { ...binding, epoch: update.epoch, scopeCursor: [...update.scopeCursor] } as SpineTreeWorkingBinding;
+    const next = updateWorkingBinding(binding, leaseId, update);
     this.#bindings.set(agentId, next);
     return clone(next);
   }
@@ -269,7 +287,7 @@ export class GitSpineTreeAgentRegistry implements SpineTreeWorkingAgentRegistry,
         if (registry[binding.agentId] !== undefined) {
           throw new SpineTreeRegistryError("duplicate-agent", `Agent ${binding.agentId} is already registered`);
         }
-        if (activeBranchBindings(snapshot, binding.branch).length > 0) {
+        if (activeBranchBindings(snapshot, binding.branch).length > 0 || snapshot.branches[binding.branch]?.reexecution?.state === "reserved") {
           throw new SpineTreeRegistryError("branch-occupied", `ProjectBranch ${binding.branch} already has an active Agent`);
         }
         registry[binding.agentId] = clone(binding);
@@ -278,9 +296,20 @@ export class GitSpineTreeAgentRegistry implements SpineTreeWorkingAgentRegistry,
     );
   }
 
+  async rejuvenate(input: SpineTreeRejuvenateInput, rejuvenator: SpineTreeRejuvenator): Promise<SpineTreeRejuvenateResult> {
+    return rejuvenateBranch(this.store, this.#maxCasRetries, input, rejuvenator);
+  }
+
   async registerWorkingExclusive(binding: SpineTreeWorkingBinding): Promise<void> {
     validateWorkingBinding(binding);
     await this.registerExclusive(binding);
+  }
+
+  async transitionWorking(agentId: string, leaseId: string, expected: SpineTreeAgentStatus, status: SpineTreeAgentStatus): Promise<SpineTreeWorkingBinding> {
+    return mutateSnapshotWithRetry(this.store, this.#maxCasRetries, "spinetree: working lease status transition", snapshot => {
+      const next = transitionWorkingBinding(snapshot.registry?.[agentId], leaseId, expected, status);
+      return { snapshot: { ...snapshot, registry: { ...snapshot.registry, [agentId]: next } }, value: clone(next) };
+    });
   }
 
   async updateWorking(agentId: string, leaseId: string, update: SpineTreeWorkingUpdate): Promise<SpineTreeWorkingBinding> {
@@ -292,9 +321,7 @@ export class GitSpineTreeAgentRegistry implements SpineTreeWorkingAgentRegistry,
         const registry = { ...(snapshot.registry ?? {}) };
         const binding = registry[agentId];
         if (binding === undefined) throw new SpineTreeRegistryError("unknown-agent", `Unknown Agent ${agentId}`);
-        assertWorkingLease(binding, leaseId);
-        validateWorkingUpdate(update, binding.epoch);
-        const next = { ...binding, epoch: update.epoch, scopeCursor: [...update.scopeCursor] } as SpineTreeWorkingBinding;
+        const next = updateWorkingBinding(binding, leaseId, update);
         registry[agentId] = next;
         return { snapshot: { ...snapshot, registry }, value: clone(next) };
       },
@@ -320,6 +347,8 @@ export interface SpineTreeReceipt {
   readonly from: string | null;
   readonly message: string;
   readonly requestId?: string;
+  /** Exact endpoint admitted by a configured transport; never retargeted on retry. */
+  readonly recipient?: SpineTreeRecipientBinding;
   readonly status: SpineTreeReceiptStatus;
   readonly attempt: number;
   readonly leaseId: string | null;
@@ -342,13 +371,23 @@ export interface SpineTreeMailboxInput {
   readonly from: string | null;
   readonly message: string;
   readonly requestId?: string;
+  readonly recipient?: SpineTreeRecipientBinding;
 }
 
 export interface SpineTreeMailboxBinding {
   readonly agentId: string;
   readonly sessionId: string;
   readonly bindingId?: string;
+  readonly leaseId?: string;
 }
+
+export interface SpineTreeRecipientBinding extends SpineTreeMailboxBinding {
+  readonly bindingId: string;
+  readonly leaseId: string;
+}
+
+/** Reachable endpoint identities, including owned sessions that are temporarily busy. */
+export type SpineTreeTransportDomain = () => readonly SpineTreeRecipientBinding[] | Promise<readonly SpineTreeRecipientBinding[]>;
 
 export interface SpineTreeMailbox {
   enqueue(input: SpineTreeMailboxInput): SpineTreeReceipt | Promise<SpineTreeReceipt>;
@@ -364,8 +403,8 @@ export interface SpineTreeMailboxReader {
 }
 
 export interface SpineTreeDispatchMailbox extends SpineTreeMailbox, SpineTreeMailboxReader {
-  /** Read-only selection of due queued receipts and expired leases, in enqueue order. */
-  pending(limit: number): readonly SpineTreeReceipt[] | Promise<readonly SpineTreeReceipt[]>;
+  /** Filter recipients before limiting due queued receipts and expired leases. */
+  pending(limit: number, recipients?: readonly SpineTreeRecipientBinding[]): readonly SpineTreeReceipt[] | Promise<readonly SpineTreeReceipt[]>;
 }
 
 export const SPINETREE_MESSAGE_SCHEMA = "spinetree.message/v1" as const;
@@ -404,11 +443,12 @@ export class MemorySpineTreeMailbox implements SpineTreeDispatchMailbox {
   readonly #requestIds = new Map<string, string>();
 
   enqueue(input: SpineTreeMailboxInput): SpineTreeReceipt {
+    validateMailboxInput(input);
     if (input.requestId !== undefined) {
       const existingId = this.#requestIds.get(input.requestId);
       if (existingId !== undefined) {
         const existing = this.#receipt(existingId);
-        if (existing.to !== input.to || existing.from !== input.from || existing.message !== input.message) {
+        if (!sameMailboxInput(existing, input)) {
           throw new SpineTreeMailboxError("invalid-state", `Request ${input.requestId} is already bound to another message`);
         }
         return clone(existing);
@@ -420,6 +460,7 @@ export class MemorySpineTreeMailbox implements SpineTreeDispatchMailbox {
       from: input.from,
       message: input.message,
       ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+      ...(input.recipient === undefined ? {} : { recipient: clone(input.recipient) }),
       status: "queued",
       attempt: 0,
       leaseId: null,
@@ -436,6 +477,7 @@ export class MemorySpineTreeMailbox implements SpineTreeDispatchMailbox {
     const receipt = this.receipt(receiptId);
     const now = Date.now();
     requireLeaseable(receipt, now);
+    requireRecipient(receipt, binding);
     const next = {
       ...receipt,
       ...(binding?.bindingId === undefined ? {} : { bindingId: binding.bindingId }),
@@ -485,8 +527,8 @@ export class MemorySpineTreeMailbox implements SpineTreeDispatchMailbox {
     return clone(this.#receipt(receiptId));
   }
 
-  pending(limit: number): readonly SpineTreeReceipt[] {
-    return pendingReceipts(this.#receipts.values(), limit, Date.now());
+  pending(limit: number, recipients?: readonly SpineTreeRecipientBinding[]): readonly SpineTreeReceipt[] {
+    return pendingReceipts(this.#receipts.values(), limit, Date.now(), recipients);
   }
 }
 
@@ -512,18 +554,20 @@ export class GitSpineTreeMailbox implements SpineTreeDispatchMailbox {
           const existingId = state.requestIds[input.requestId];
           if (existingId !== undefined) {
             const existing = receiptFromState(state, existingId);
-            if (existing.to !== input.to || existing.from !== input.from || existing.message !== input.message) {
+            if (!sameMailboxInput(existing, input)) {
               throw new SpineTreeMailboxError("invalid-state", `Request ${input.requestId} is already bound to another message`);
             }
             return { snapshot, value: existing };
           }
         }
+        if (input.recipient !== undefined) requireCurrentRecipient(input.recipient, snapshot);
         const receipt: SpineTreeReceipt = {
           id: `mail-${state.sequence + 1}`,
           to: input.to,
           from: input.from,
           message: input.message,
           ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+          ...(input.recipient === undefined ? {} : { recipient: clone(input.recipient) }),
           status: "queued",
           attempt: 0,
           leaseId: null,
@@ -549,6 +593,8 @@ export class GitSpineTreeMailbox implements SpineTreeDispatchMailbox {
         const receipt = receiptFromState(state, receiptId);
         const now = Date.now();
         requireLeaseable(receipt, now);
+        requireRecipient(receipt, binding);
+        if (receipt.recipient !== undefined) requireCurrentRecipient(receipt.recipient, snapshot);
         const next: SpineTreeReceipt = {
           ...receipt,
           ...(binding?.bindingId === undefined ? {} : { bindingId: binding.bindingId }),
@@ -585,6 +631,7 @@ export class GitSpineTreeMailbox implements SpineTreeDispatchMailbox {
       snapshot => {
         const state = mailboxState(snapshot.mailbox);
         const receipt = receiptFromState(state, receiptId);
+        if (receipt.recipient !== undefined) requireCurrentRecipient(receipt.recipient, snapshot);
         const next = observeReceipt(receipt, leaseId, bindingId);
         if (next === receipt) return { snapshot, value: receipt };
         state.receipts[receiptId] = next;
@@ -599,12 +646,12 @@ export class GitSpineTreeMailbox implements SpineTreeDispatchMailbox {
     return receiptFromState(mailboxState(snapshot.mailbox), receiptId);
   }
 
-  async pending(limit: number): Promise<readonly SpineTreeReceipt[]> {
+  async pending(limit: number, recipients?: readonly SpineTreeRecipientBinding[]): Promise<readonly SpineTreeReceipt[]> {
     validateDispatchLimit(limit);
     const now = Date.now();
     const head = await this.store.head();
     const snapshot = await this.store.readSnapshot(head);
-    return pendingReceipts(Object.values(snapshot.mailbox?.receipts ?? {}), limit, now);
+    return pendingReceipts(Object.values(snapshot.mailbox?.receipts ?? {}), limit, now, recipients);
   }
 
   async #leaseMutation(
@@ -622,6 +669,7 @@ export class GitSpineTreeMailbox implements SpineTreeDispatchMailbox {
       snapshot => {
         const state = mailboxState(snapshot.mailbox);
         const receipt = receiptFromState(state, receiptId);
+        if (receipt.recipient !== undefined && receipt.status !== "observed") requireCurrentRecipient(receipt.recipient, snapshot);
         const next = completeDelivery(receipt, leaseId, status, error, bindingId);
         if (next === receipt) return { snapshot, value: receipt };
         state.receipts[receiptId] = next;
@@ -636,15 +684,23 @@ export async function dispatchSpineTreeMailbox(options: {
   readonly registry: SpineTreeAgentRegistry;
   readonly mailbox: SpineTreeDispatchMailbox;
   readonly sessions: PiSessionAdapter;
+  readonly transportDomain?: SpineTreeTransportDomain;
   readonly limit?: number;
 }): Promise<SpineTreeDispatchResult> {
-  const { registry, mailbox, sessions, limit = 100 } = options;
+  const { registry, mailbox, sessions, transportDomain, limit = 100 } = options;
   validateDispatchLimit(limit);
-  const pending = await mailbox.pending(limit);
+  const recipients = transportDomain === undefined ? undefined : validateRecipients(await transportDomain());
+  const pending = await mailbox.pending(limit, recipients);
   const receipts: SpineTreeReceipt[] = [];
   const skipped: string[] = [];
   for (const candidate of pending.slice(0, limit)) {
     const target = await registry.resolve(candidate.to);
+    if ((recipients !== undefined && (target?.status !== "running" ||
+        !recipients.some(recipient => sameRecipient(recipient, target)))) ||
+        (candidate.recipient !== undefined && !sameRecipient(candidate.recipient, target))) {
+      skipped.push(candidate.id);
+      continue;
+    }
     let leased: SpineTreeReceipt;
     try {
       leased = await mailbox.lease(candidate.id, target);
@@ -691,7 +747,7 @@ export class MemorySpineTreeStore implements SpineTreeChangeStore {
   constructor(snapshot: SpineTreeSnapshot, initialHead = "memory-0") {
     if (initialHead.length === 0) throw new TypeError("initialHead must be non-empty");
     this.#head = initialHead;
-    this.#snapshots.set(initialHead, clone(snapshot));
+    this.#snapshots.set(initialHead, clone(parseSnapshot(snapshot)));
   }
 
   head(): string {
@@ -737,7 +793,7 @@ export class MemorySpineTreeStore implements SpineTreeChangeStore {
     const parent = this.#head;
     const previous = this.#snapshots.get(parent);
     if (previous === undefined) throw new SpineTreeChangeError("unknown-head", `Unknown SpineTree HEAD ${parent}`);
-    const stamped = stampBranchRevisions(previous, snapshot);
+    const stamped = stampBranchRevisions(previous, parseSnapshot(snapshot));
     const head = `memory-${++this.#revision}`;
     this.#snapshots.set(head, clone(stamped));
     this.#head = head;
@@ -776,6 +832,7 @@ export class GitSpineTreeStore implements SpineTreeChangeStore {
     if (typeof root !== "string" || root.length === 0) {
       throw new SpineTreeGitStoreError("invalid-root", "SpineTree Git root must be a non-empty path");
     }
+    parseSnapshot(snapshot);
     mkdirSync(root, { recursive: true });
     const gitDir = join(root, ".git");
     if (existsSync(gitDir)) {
@@ -843,7 +900,7 @@ export class GitSpineTreeStore implements SpineTreeChangeStore {
         `SpineTree HEAD changed: expected ${expectedHead}, found ${currentHead}`,
       );
     }
-    const nextHead = this.#commitSnapshot(stampBranchRevisions(this.readSnapshot(expectedHead), snapshot), message, expectedHead);
+    const nextHead = this.#commitSnapshot(stampBranchRevisions(this.readSnapshot(expectedHead), parseSnapshot(snapshot)), message, expectedHead);
     try {
       runGit(this.root, ["update-ref", "HEAD", nextHead, expectedHead]);
     } catch (error) {
@@ -877,10 +934,20 @@ export interface SpineTreeRejuvenateContext {
   readonly branch: SpineTreeBranch;
   readonly inherit: SpineTreeInheritance;
   readonly request?: string;
+  readonly executionId: string;
+  readonly sourceHead: string;
 }
 
 export interface SpineTreeRejuvenator {
-  provision(context: SpineTreeRejuvenateContext): SpineTreeAgentBinding | Promise<SpineTreeAgentBinding>;
+  /** Allocate identity only; the branch is still reserved and must not sample. */
+  provision(context: SpineTreeRejuvenateContext): SpineTreeWorkingBinding | Promise<SpineTreeWorkingBinding>;
+  /** Attach an idle session after ownership and branch revival have committed. */
+  ready?(binding: SpineTreeWorkingBinding, context: SpineTreeRejuvenateContext): void | Promise<void>;
+  release?(binding: SpineTreeWorkingBinding, context: SpineTreeRejuvenateContext): void | Promise<void>;
+}
+
+export interface SpineTreeReexecutionRegistry {
+  rejuvenate(input: SpineTreeRejuvenateInput, rejuvenator: SpineTreeRejuvenator): Promise<SpineTreeRejuvenateResult>;
 }
 
 export interface SpineTreePluginOptions {
@@ -889,6 +956,8 @@ export interface SpineTreePluginOptions {
   readonly registry?: SpineTreeAgentRegistry;
   readonly mailbox?: SpineTreeMailbox;
   readonly rejuvenator?: SpineTreeRejuvenator;
+  /** Omit only for queue-only hosts that do not promise a reachable endpoint. */
+  readonly transportDomain?: SpineTreeTransportDomain;
   /** Omit to keep the historical project and collaboration tools. An empty list loads nothing. */
   readonly load?: readonly string[];
 }
@@ -938,7 +1007,7 @@ export interface SpineTreeRejuvenateResult {
 }
 
 export class SpineTreeSendError extends Error {
-  readonly code: "invalid-input" | "unknown-recipient" | "recipient-ended" | "mailbox-error";
+  readonly code: "invalid-input" | "unknown-recipient" | "recipient-ended" | "recipient-unavailable" | "mailbox-error";
 
   constructor(code: SpineTreeSendError["code"], message: string) {
     super(message);
@@ -1041,7 +1110,7 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
   const sendReady = options.registry !== undefined && options.mailbox !== undefined;
   const observeReady = sendReady && isMailboxReader(options.mailbox!);
   const rejuvenateReady = store !== undefined && options.registry !== undefined &&
-    isRegistryReader(options.registry) && isExclusiveRegistry(options.registry) && options.rejuvenator !== undefined;
+    isReexecutionRegistry(options.registry) && options.rejuvenator !== undefined;
   return {
     manifest: options.load === undefined ? SPINETREE_PLUGIN_MANIFEST : spineTreeManifestFor(options.load),
     activate(context) {
@@ -1053,11 +1122,11 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
             : operation === "change" && changeStore !== undefined
               ? changeTool(changeStore)
             : operation === "send" && sendReady
-              ? sendTool(options.registry!, options.mailbox!)
+              ? sendTool(options.registry!, options.mailbox!, options.transportDomain)
             : operation === "observe" && observeReady
               ? observeTool(options.registry!, options.mailbox!, options.mailbox!)
             : operation === "rejuvenate" && rejuvenateReady
-              ? rejuvenateTool(store!, options.registry!, options.rejuvenator!)
+              ? rejuvenateTool(options.registry! as SpineTreeAgentRegistry & SpineTreeReexecutionRegistry, options.rejuvenator!)
             : contractTool(context, operation),
         );
       }
@@ -1075,9 +1144,13 @@ export function createSpineTreePlugin(options: SpineTreePluginOptions = {}): Spi
 function sendTool(
   registry: SpineTreeAgentRegistry,
   mailbox: SpineTreeMailbox,
+  transportDomain?: SpineTreeTransportDomain,
 ): PluginTool {
   return {
     ...toolContracts.send,
+    description: toolContracts.send.description + (transportDomain === undefined
+      ? " This host is queue-only: no endpoint reachability is promised."
+      : " This host accepts only its configured transport endpoints; unsupported or stale recipients fail before enqueue."),
     execute: async (input: unknown) => {
       const parsed = parseSendInput(input);
       const target = await registry.resolve(parsed.to);
@@ -1086,6 +1159,15 @@ function sendTool(
       }
       if (target.status === "ended") {
         throw new SpineTreeSendError("recipient-ended", `Agent ${parsed.to} has ended`);
+      }
+      let recipient: SpineTreeRecipientBinding | undefined;
+      if (transportDomain !== undefined) {
+        const recipients = validateRecipients(await transportDomain());
+        const current = await registry.resolve(parsed.to);
+        recipient = recipients.find(item => sameRecipient(item, target) && sameRecipient(item, current));
+        if (target.status !== "running" || current?.status !== "running" || recipient === undefined) {
+          throw new SpineTreeSendError("recipient-unavailable", `Agent ${parsed.to} has no matching endpoint in this host's transport domain`);
+        }
       }
       if (parsed.from !== undefined) {
         const source = await registry.resolve(parsed.from);
@@ -1098,6 +1180,7 @@ function sendTool(
           from: parsed.from ?? null,
           message: parsed.message,
           ...(parsed.requestId === undefined ? {} : { requestId: parsed.requestId }),
+          ...(recipient === undefined ? {} : { recipient }),
         });
         return sendResult(receipt, target.sessionId);
       } catch (error) {
@@ -1146,7 +1229,8 @@ async function deliverReceipt(
   const current = await resolveCurrent();
   const stored = await mailbox.receipt(leased.id);
   if (current?.sessionId !== target.sessionId || current.bindingId !== target.bindingId ||
-      stored.leaseId !== leaseId || stored.bindingId !== bindingId) {
+      stored.leaseId !== leaseId || stored.bindingId !== bindingId ||
+      (leased.recipient !== undefined && !sameRecipient(leased.recipient, current))) {
     throw new SpineTreeMailboxError("lease-conflict", `Agent ${leased.to} binding changed during delivery`);
   }
   return accepted
@@ -1192,6 +1276,9 @@ function observeTool(
           `Agent ${parsed.agentId} is not the recipient of receipt ${parsed.receiptId}`,
         );
       }
+      if (current.recipient !== undefined && !sameRecipient(current.recipient, agent)) {
+        throw new SpineTreeObserveError("lease-conflict", `Agent ${parsed.agentId} no longer owns receipt ${parsed.receiptId}`);
+      }
       try {
         const receipt = await mailbox.observed(parsed.receiptId, parsed.leaseId, agent.bindingId);
         return {
@@ -1234,80 +1321,101 @@ function observeMailboxError(error: unknown, receiptId: string): SpineTreeObserv
   return new SpineTreeObserveError("mailbox-error", `Could not observe receipt ${receiptId}: ${error instanceof Error ? error.message : String(error)}`);
 }
 
-function rejuvenateTool(
-  store: SpineTreeSnapshotStore,
-  registry: SpineTreeAgentRegistry & SpineTreeAgentRegistryReader & SpineTreeExclusiveAgentRegistry,
-  rejuvenator: SpineTreeRejuvenator,
-): PluginTool {
-  return {
-    ...toolContracts.rejuvenate,
-    execute: async (input: unknown) => {
-      const parsed = parseRejuvenateInput(input);
-      const head = await store.head();
-      const snapshot = await store.readSnapshot(head);
+function isReexecutionRegistry(registry: SpineTreeAgentRegistry): registry is SpineTreeAgentRegistry & SpineTreeReexecutionRegistry {
+  return typeof (registry as Partial<SpineTreeReexecutionRegistry>).rejuvenate === "function";
+}
+
+function rejuvenateTool(registry: SpineTreeReexecutionRegistry, rejuvenator: SpineTreeRejuvenator): PluginTool {
+  return { ...toolContracts.rejuvenate, execute: input => registry.rejuvenate(parseRejuvenateInput(input), rejuvenator) };
+}
+
+async function rejuvenateBranch(
+  store: SpineTreeSnapshotCommitStore, retries: number, parsed: SpineTreeRejuvenateInput, rejuvenator: SpineTreeRejuvenator,
+): Promise<SpineTreeRejuvenateResult> {
+  const executionId = randomUUID();
+  const context = await mutateSnapshotWithRetry(store, retries, "spinetree: reserve reexecution", (snapshot, head) => {
+    const target = snapshot.branches[parsed.branch];
+    if (target === undefined) throw new SpineTreeRejuvenateError("unknown-branch", `Unknown ProjectBranch ${parsed.branch}`);
+    const parent = snapshot.branches[parsed.parent];
+    if (parent === undefined || parent.id === target.id || !isDescendant(snapshot, target.id, parent.id)) {
+      throw new SpineTreeRejuvenateError("invalid-parent", `ProjectBranch ${parsed.parent} is not an ancestor of ${parsed.branch}`);
+    }
+    if (target.status !== "capped") throw new SpineTreeRejuvenateError("branch-not-capped", `ProjectBranch ${target.id} is not capped`);
+    if (activeBranchBindings(snapshot, target.id).length > 0 || target.reexecution?.state === "reserved" || target.reexecution?.state === "running") {
+      throw new SpineTreeRejuvenateError("branch-occupied", `ProjectBranch ${target.id} already has an execution`);
+    }
+    const reexecution: SpineTreeReexecution = {
+      schema: "spinetree.reexecution/v1", id: executionId, state: "reserved", parent: parent.id, sourceHead: head,
+      source: { memory: clone(target.memory), memoryVersion: target.memoryVersion, memorySource: clone(target.memorySource),
+        ...(target.scopeBinding === undefined ? {} : { scopeBinding: clone(target.scopeBinding) }) },
+    };
+    const context: SpineTreeRejuvenateContext = {
+      executionId, sourceHead: head, parent: clone(parent), branch: clone(target), inherit: inheritance(snapshot, target),
+      ...(parsed.request === undefined ? {} : { request: parsed.request }),
+    };
+    return { snapshot: { ...snapshot, branches: { ...snapshot.branches, [target.id]: { ...target, reexecution } } }, value: context };
+  });
+  let binding: SpineTreeWorkingBinding | undefined;
+  let published = false;
+  try {
+    binding = clone(await rejuvenator.provision(clone(context)));
+    validateWorkingBinding(binding);
+    if (binding.branch !== parsed.branch || binding.status !== "running" || binding.operationId !== executionId) {
+      throw new SpineTreeRejuvenateError("invalid-binding", "Provisioned WorkingBinding must name this running reexecution");
+    }
+    const fixedBinding = clone(binding);
+    await mutateSnapshotWithRetry(store, retries, "spinetree: start reexecution", snapshot => {
       const target = snapshot.branches[parsed.branch];
-      if (target === undefined) {
-        throw new SpineTreeRejuvenateError("unknown-branch", `Unknown ProjectBranch ${parsed.branch}`);
+      const execution = target?.reexecution;
+      if (target?.status !== "capped" || execution?.id !== executionId || execution.state !== "reserved" ||
+          target.memoryVersion !== context.branch.memoryVersion || revisionOf(target) !== revisionOf(context.branch) + 1 ||
+          JSON.stringify(target.memory) !== JSON.stringify(context.branch.memory) || JSON.stringify(target.memorySource) !== JSON.stringify(context.branch.memorySource)) {
+        throw new SpineTreeRejuvenateError("invalid-binding", "Reexecution reservation no longer matches its source");
       }
-      const parent = snapshot.branches[parsed.parent];
-      if (parent === undefined || !isDescendant(snapshot, target.id, parent.id)) {
-        throw new SpineTreeRejuvenateError(
-          "invalid-parent",
-          `ProjectBranch ${parsed.parent} is not an ancestor of ${parsed.branch}`,
-        );
+      if (snapshot.registry?.[fixedBinding.agentId] !== undefined || activeBranchBindings(snapshot, target.id).length > 0) {
+        throw new SpineTreeRejuvenateError("branch-occupied", "Reexecution identity or branch is already occupied");
       }
-      if (target.status !== "capped") {
-        throw new SpineTreeRejuvenateError("branch-not-capped", `ProjectBranch ${target.id} is ${target.status}, not capped`);
+      const { scopeBinding: _oldScope, ...branch } = target;
+      return { snapshot: { ...snapshot,
+        branches: { ...snapshot.branches, [target.id]: { ...branch, status: "live", reexecution: { ...execution, state: "running", binding: fixedBinding } } },
+        registry: { ...snapshot.registry, [fixedBinding.agentId]: fixedBinding },
+      }, value: undefined };
+    });
+    published = true;
+    await rejuvenator.ready?.(clone(binding), clone(context));
+    return { schema: SPINETREE_REJUVENATE_RESULT_SCHEMA, parent: parsed.parent, branch: parsed.branch, binding: clone(binding), context };
+  } catch (cause) {
+    // Only this reservation can be released. Preserve its provenance on failure;
+    // no live Agent is manufactured for a failed allocation.
+    const failed = await mutateSnapshotWithRetry(store, retries, "spinetree: fail reexecution", snapshot => {
+      const target = snapshot.branches[parsed.branch];
+      const execution = target?.reexecution;
+      if (target === undefined || execution?.id !== executionId || (execution.state !== "reserved" && execution.state !== "running")) return { snapshot, value: false };
+      if (target.memoryVersion !== context.branch.memoryVersion || JSON.stringify(target.memorySource) !== JSON.stringify(context.branch.memorySource)) {
+        throw new SpineTreeRejuvenateError("invalid-binding", "Cannot roll back reexecution after canonical memory changed");
       }
-      let bindings: readonly SpineTreeAgentBinding[];
-      try {
-        bindings = await registry.list(target.id);
-      } catch (error) {
-        throw new SpineTreeRejuvenateError("registry-error", formatError(error));
+      const current = binding === undefined ? undefined : snapshot.registry?.[binding.agentId];
+      if (target.status !== (published ? "live" : "capped") || execution.state !== (published ? "running" : "reserved") ||
+          (published ? ![current, execution.binding].every(owner => owner !== undefined && isWorkingBinding(owner) &&
+            sameRecipient(binding!, owner) && owner.branch === binding!.branch && owner.scope === binding!.scope &&
+            owner.operationId === executionId && owner.status === "running" && owner.epoch === binding!.epoch &&
+            JSON.stringify(owner.scopeCursor) === JSON.stringify(binding!.scopeCursor)) : current !== undefined)) {
+        throw new SpineTreeRejuvenateError("invalid-binding", "Cannot release a replaced execution binding");
       }
-      if (bindings.some(binding => binding.status !== "ended")) {
-        throw new SpineTreeRejuvenateError("branch-occupied", `ProjectBranch ${target.id} already has an active Agent`);
-      }
-      const context: SpineTreeRejuvenateContext = {
-        parent: clone(parent),
-        branch: clone(target),
-        inherit: inheritance(snapshot, target),
-        ...(parsed.request === undefined ? {} : { request: parsed.request }),
-      };
-      let binding: SpineTreeAgentBinding;
-      try {
-        binding = await rejuvenator.provision(context);
-        validateBinding(binding);
-        if (binding.branch !== target.id) {
-          throw new SpineTreeRejuvenateError("invalid-binding", `Provisioned Agent must bind ProjectBranch ${target.id}`);
-        }
-      } catch (error) {
-        if (error instanceof SpineTreeRejuvenateError) throw error;
-        if (error instanceof SpineTreeRegistryError) {
-          throw new SpineTreeRejuvenateError("invalid-binding", error.message);
-        }
-        throw error;
-      }
-      try {
-        await registry.registerExclusive(binding);
-      } catch (error) {
-        if (error instanceof SpineTreeRegistryError && error.code === "branch-occupied") {
-          throw new SpineTreeRejuvenateError("branch-occupied", error.message);
-        }
-        if (error instanceof SpineTreeRegistryError && error.code === "invalid-binding") {
-          throw new SpineTreeRejuvenateError("invalid-binding", error.message);
-        }
-        throw new SpineTreeRejuvenateError("registry-error", formatError(error));
-      }
-      return {
-        schema: SPINETREE_REJUVENATE_RESULT_SCHEMA,
-        parent: parsed.parent,
-        branch: target.id,
-        binding: clone(binding),
-        context,
-      } satisfies SpineTreeRejuvenateResult;
-    },
-  };
+      const { scopeBinding: _failedScope, ...branch } = target;
+      return { snapshot: { ...snapshot,
+        branches: { ...snapshot.branches, [target.id]: { ...branch, status: "capped",
+          ...(execution.source.scopeBinding === undefined ? {} : { scopeBinding: clone(execution.source.scopeBinding) }),
+          reexecution: { ...execution, state: "failed" } } },
+        ...(published ? { registry: { ...snapshot.registry, [binding!.agentId]: { ...current!, status: "ended" as const } } } : {}),
+      }, value: true };
+    });
+    // The CAS above fences stale owners before any external cleanup. The adapter
+    // receives the original identity and must release only that allocation.
+    try { if (failed && binding !== undefined) await rejuvenator.release?.(clone(binding), clone(context)); }
+    catch (cleanupError) { throw new AggregateError([cause, cleanupError], "Reexecution and session cleanup failed"); }
+    throw cause;
+  }
 }
 
 function parseRejuvenateInput(input: unknown): SpineTreeRejuvenateInput {
@@ -1399,7 +1507,16 @@ function validateWorkingUpdate(update: SpineTreeWorkingUpdate, currentEpoch: num
   }
 }
 
-function isWorkingBinding(binding: SpineTreeAgentBinding): binding is SpineTreeWorkingBinding {
+/** Pure lease update shared by cursor-only registry writes and atomic Scope imports. */
+export function updateWorkingBinding(binding: SpineTreeAgentBinding, leaseId: string,
+  update: SpineTreeWorkingUpdate): SpineTreeWorkingBinding {
+  assertWorkingLease(binding, leaseId);
+  validateWorkingUpdate(update, binding.epoch);
+  return { ...binding, epoch: update.epoch, scopeCursor: [...update.scopeCursor] };
+}
+
+/** Complete lease shape shared by registry and committed Scope admission. */
+export function isWorkingBinding(binding: SpineTreeAgentBinding): binding is SpineTreeWorkingBinding {
   const candidate = binding as Partial<SpineTreeWorkingBinding>;
   return typeof candidate.bindingId === "string" && candidate.bindingId.length > 0 &&
     typeof candidate.leaseId === "string" && candidate.leaseId.length > 0 &&
@@ -1431,6 +1548,15 @@ function transitionBinding(binding: SpineTreeAgentBinding, status: SpineTreeAgen
   return { ...binding, status };
 }
 
+function transitionWorkingBinding(binding: SpineTreeAgentBinding | undefined, leaseId: string,
+  expected: SpineTreeAgentStatus, status: SpineTreeAgentStatus): SpineTreeWorkingBinding {
+  validateAgentStatus(expected);
+  if (binding === undefined || !isWorkingBinding(binding) || binding.leaseId !== leaseId || binding.status !== expected) {
+    throw new SpineTreeRegistryError("stale-lease", "WorkingBinding lease or expected status no longer matches");
+  }
+  return { ...binding, ...transitionBinding(binding, status) };
+}
+
 function contractTool(context: SpinePluginContext, operation: keyof typeof toolContracts): PluginTool {
   return {
     ...toolContracts[operation],
@@ -1447,7 +1573,7 @@ function contractTool(context: SpinePluginContext, operation: keyof typeof toolC
 function readTool(store: SpineTreeSnapshotStore): PluginTool {
   return {
     ...toolContracts.read,
-    execute: async (input: unknown) => readSnapshot(store, input),
+    execute: async (input: unknown) => readSpineTreeBranch(store, input),
   };
 }
 
@@ -1529,14 +1655,6 @@ function isMailboxReader(mailbox: SpineTreeMailbox): mailbox is SpineTreeMailbox
   return typeof (mailbox as Partial<SpineTreeMailboxReader>).receipt === "function";
 }
 
-function isRegistryReader(registry: SpineTreeAgentRegistry): registry is SpineTreeAgentRegistry & SpineTreeAgentRegistryReader {
-  return typeof (registry as Partial<SpineTreeAgentRegistryReader>).list === "function";
-}
-
-function isExclusiveRegistry(registry: SpineTreeAgentRegistry): registry is SpineTreeAgentRegistry & SpineTreeExclusiveAgentRegistry {
-  return typeof (registry as Partial<SpineTreeExclusiveAgentRegistry>).registerExclusive === "function";
-}
-
 function asCommitStore(storeOrRoot: SpineTreeSnapshotCommitStore | string): SpineTreeSnapshotCommitStore {
   if (typeof storeOrRoot === "string") return new GitSpineTreeStore(storeOrRoot);
   if (storeOrRoot !== null && typeof storeOrRoot.commitSnapshot === "function") return storeOrRoot;
@@ -1582,6 +1700,45 @@ function validateMailboxInput(input: SpineTreeMailboxInput): void {
     (input.requestId !== undefined && (typeof input.requestId !== "string" || input.requestId.length === 0))
   ) {
     throw new SpineTreeMailboxError("invalid-state", "Mailbox input requires non-empty to/message and valid from/requestId");
+  }
+  if (input.recipient !== undefined && (!isRecipient(input.recipient) || input.recipient.agentId !== input.to)) {
+    throw new SpineTreeMailboxError("invalid-state", "Mailbox recipient must name the exact target endpoint");
+  }
+}
+
+function isRecipient(value: SpineTreeRecipientBinding): boolean {
+  return value !== null && typeof value === "object" &&
+    [value.agentId, value.sessionId, value.bindingId, value.leaseId].every(item => typeof item === "string" && item.length > 0);
+}
+
+function validateRecipients(values: readonly SpineTreeRecipientBinding[]): readonly SpineTreeRecipientBinding[] {
+  if (!Array.isArray(values) || values.some(value => !isRecipient(value)) ||
+      new Set(values.map(value => value.agentId)).size !== values.length) {
+    throw new TypeError("Transport domain requires unique Agent endpoint identities");
+  }
+  return values.map(({ agentId, sessionId, bindingId, leaseId }) => ({ agentId, sessionId, bindingId, leaseId }));
+}
+
+function sameRecipient(left: SpineTreeRecipientBinding, right: SpineTreeMailboxBinding | undefined): boolean {
+  return right !== undefined && left.agentId === right.agentId && left.sessionId === right.sessionId &&
+    left.bindingId === right.bindingId && left.leaseId === right.leaseId;
+}
+
+function sameMailboxInput(receipt: SpineTreeReceipt, input: SpineTreeMailboxInput): boolean {
+  return receipt.to === input.to && receipt.from === input.from && receipt.message === input.message &&
+    (receipt.recipient === undefined ? input.recipient === undefined : sameRecipient(receipt.recipient, input.recipient));
+}
+
+function requireRecipient(receipt: SpineTreeReceipt, binding: SpineTreeMailboxBinding | undefined): void {
+  if (receipt.recipient !== undefined && !sameRecipient(receipt.recipient, binding)) {
+    throw new SpineTreeMailboxError("lease-conflict", `Recipient endpoint no longer matches receipt ${receipt.id}`);
+  }
+}
+
+function requireCurrentRecipient(recipient: SpineTreeRecipientBinding, snapshot: SpineTreeSnapshot): void {
+  const current = snapshot.registry?.[recipient.agentId];
+  if (current?.status !== "running" || !sameRecipient(recipient, current)) {
+    throw new SpineTreeMailboxError("lease-conflict", `Agent ${recipient.agentId} no longer owns the recipient endpoint`);
   }
 }
 
@@ -1643,10 +1800,16 @@ function validateDispatchLimit(limit: number): void {
   if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("Mailbox dispatch limit must be a positive safe integer");
 }
 
-function pendingReceipts(receipts: Iterable<SpineTreeReceipt>, limit: number, now: number): readonly SpineTreeReceipt[] {
+function pendingReceipts(receipts: Iterable<SpineTreeReceipt>, limit: number, now: number,
+  recipients?: readonly SpineTreeRecipientBinding[]): readonly SpineTreeReceipt[] {
   validateDispatchLimit(limit);
+  const domain = recipients === undefined ? undefined : new Map(validateRecipients(recipients).map(item => [item.agentId, item]));
   const pending: SpineTreeReceipt[] = [];
   for (const receipt of receipts) {
+    if (domain !== undefined) {
+      const target = domain.get(receipt.to);
+      if (target === undefined || (receipt.recipient !== undefined && !sameRecipient(receipt.recipient, target))) continue;
+    }
     if (isPending(receipt, now)) pending.push(clone(receipt));
     if (pending.length === limit) break;
   }
@@ -1657,13 +1820,13 @@ async function mutateSnapshotWithRetry<T>(
   store: SpineTreeSnapshotCommitStore,
   maxCasRetries: number,
   message: string,
-  mutate: (snapshot: SpineTreeSnapshot) => { snapshot: SpineTreeSnapshot; value: T },
+  mutate: (snapshot: SpineTreeSnapshot, head: string) => { snapshot: SpineTreeSnapshot; value: T },
 ): Promise<T> {
   let lastStale: unknown;
   for (let attempt = 0; attempt < maxCasRetries; attempt += 1) {
     const head = await store.head();
     const snapshot = await store.readSnapshot(head);
-    const result = mutate(snapshot);
+    const result = mutate(snapshot, head);
     if (result.snapshot === snapshot) return result.value;
     try {
       await store.commitSnapshot(head, result.snapshot, message);
@@ -1732,7 +1895,7 @@ function applyMove(snapshot: SpineTreeSnapshot, branch: DraftSpineTreeBranch, pa
     throw new SpineTreeChangeError("invalid-change", "move requires a non-empty parent string");
   }
   if (branch.id === "root") throw new SpineTreeChangeError("invalid-change", "Cannot move root");
-  if (branch.status === "live") throw new SpineTreeChangeError("invalid-change", `Cannot move live branch ${branch.id}`);
+  if (branch.status === "live" || branch.reexecution?.state === "reserved") throw new SpineTreeChangeError("invalid-change", `Cannot move active branch ${branch.id}`);
   if (snapshot.branches[parent] === undefined) {
     throw new SpineTreeChangeError("unknown-branch", `Unknown ProjectBranch ${parent}`);
   }
@@ -1753,11 +1916,11 @@ function isDescendant(snapshot: SpineTreeSnapshot, candidate: string, ancestor: 
 
 function hasLiveWork(snapshot: SpineTreeSnapshot, branchId: string): boolean {
   return Object.values(snapshot.branches).some(candidate =>
-    candidate.status === "live" && (candidate.id === branchId || isDescendant(snapshot, candidate.id, branchId)),
+    (candidate.status === "live" || candidate.reexecution?.state === "reserved") && (candidate.id === branchId || isDescendant(snapshot, candidate.id, branchId)),
   );
 }
 
-async function readSnapshot(
+export async function readSpineTreeBranch(
   store: SpineTreeSnapshotStore,
   input: unknown,
 ): Promise<SpineTreeReadResult> {
@@ -1865,10 +2028,11 @@ function parseSnapshot(value: unknown): SpineTreeSnapshot {
     value === null ||
     typeof value !== "object" ||
     Array.isArray(value) ||
+    (value as { schema?: unknown }).schema !== SPINETREE_SNAPSHOT_SCHEMA ||
     !isRecord((value as { branches?: unknown }).branches) ||
-    !isRecord((value as { agents?: unknown }).agents)
+    Object.prototype.hasOwnProperty.call(value, "agents")
   ) {
-    throw new SpineTreeGitStoreError("invalid-snapshot", "SpineTree snapshot requires branches and agents maps");
+    throw new SpineTreeGitStoreError("invalid-snapshot", "SpineTree snapshot requires spinetree.snapshot/v2 and a branches map, without legacy agents");
   }
   const snapshot = value as SpineTreeSnapshot;
   for (const branch of Object.values(snapshot.branches)) revisionOf(branch);

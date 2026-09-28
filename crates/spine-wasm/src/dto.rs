@@ -18,7 +18,7 @@ use spine_core::host::SpineOperationFact;
 use spine_core::host::SpineProjection;
 use spine_core::host::TokenUsageSample;
 
-pub const ABI_SCHEMA: &str = "spine-sdk/v1";
+pub const ABI_SCHEMA: &str = "spine-sdk/v2";
 pub const SOURCE_SNAPSHOT_SCHEMA: &str = "spine.source.snapshot.v1";
 
 #[derive(Clone, Debug, Deserialize)]

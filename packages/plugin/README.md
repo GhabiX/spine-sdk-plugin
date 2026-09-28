@@ -1,0 +1,92 @@
+# Spine plugin prompt configuration
+
+Pi loads its prompt configuration from `spine.toml` in this package. This file
+overrides the embedded `spine-core` prompt defaults, so updating the shared WASM
+artifact alone does not update Pi's configured wording.
+
+Each extension activation reads one configuration snapshot for its tool catalog
+and default runtime. Tree navigation reuses it; `/new` and reload read the file
+again. A custom runtime factory remains responsible for its own configuration.
+
+The default node body is empty. Each projected `<spine_node>` still includes
+its identity, summary, and stable status; the global JIT prompt explains those
+boundaries once. An explicit nonempty `prompt.node` remains supported. Tool
+descriptions retain the operation and returned-memory guidance.
+
+Pi and SpineCodex now use the v6 recursive-call policy: each branch owns an
+outcome, Close returns one level, and new work begins under its direct owner.
+The global policy and Open/Close/Next descriptions are synchronized, with host
+tool names adapted. Node bodies remain empty; Spawn and parameter schemas are
+unchanged. The v6 Pi training and unseen-task PoC passed the exercised ownership
+and return cases; repeated memory and broader lifecycle coverage remain limits.
+
+## Pi SDK installation and updates
+
+This package is the SDK-backed Pi SpineJIT extension. Its Pi manifest and package
+export both select `dist/pi/extension.js`, which is included in the package.
+The native Pi implementation is a separate project.
+
+From this repository's root, build the TypeScript packages in dependency order:
+
+```bash
+npm run build -w @spinejit/spine-sdk
+npm run build -w @spinejit/spine-host
+npm run build -w @spinejit/spine-plugin
+pi install /absolute/path/to/spine-sdk-plugin/packages/plugin
+```
+
+Local directory installation and packed installation use the same compiled
+entry. After source changes, rebuild these packages, then `/reload` or restart
+Pi and start a new session. A `spine.toml` wording change needs extension
+reactivation, but does not require a TypeScript or WASM rebuild. Normal Pi
+0.87.1 `/new` also reactivates extensions; a tree navigation is not a reload.
+
+The package depends on matching SDK and host packages and Pi 0.87.1. In a local
+checkout, workspace dependencies must already be installed. A packed consumer
+must resolve those dependencies too; the plugin tarball does not bundle them.
+Spawn's default child invocation passes the currently loaded extension module,
+so the formal `dist` entry is also the explicit child entry.
+
+## Runtime composition
+
+`extendSystemPrompt(base)` composes an original host base with enabled Spine
+prompt sections. Pass the original base for every call, not an earlier composed
+result. The host text is preserved as supplied, including any literal examples
+of Spine tags. Pi's sampling hook receives fresh original system options and
+performs this composition once for the request.
+
+## Local development build
+
+The development `spine-core` source is fixed by `core-source.json` as SpineCodex
+revision `cb01f18b0113ada388b0ede69b36c1194513a240` plus the versioned patch
+`provenance/spine-core-cb01f18.patch`. The declaration records the full core
+file inventory and hashes, including prompt composition fixes and the v6
+configuration. It does not claim those changes are in the upstream commit.
+
+Build with the repository's `scripts/build-node-wasm.sh`, an explicitly selected
+shared Cargo target cache, and `wasm-bindgen 0.2.127`. The script produces
+`packages/sdk/wasm/node/spine_wasm*`, loaded by `packages/sdk/dist/node.js`.
+The script verifies the declared source before and after its locked Cargo build.
+See the repository README for source reconstruction. Build evidence is recorded
+in `tasks/sdk_review_branch_e2e_20260928_1232/evidence/core-provenance/`.
+No release or publication is implied by this local development build.
+
+## Provider message ordering
+
+Spine node descriptors must stay at their projected positions in the conversation.
+For an OpenAI Responses model that supports developer messages within the
+conversation, set model compatibility `supportsMidConvoSystemMessages: true`.
+Pi 0.87.1 otherwise hoists those messages into the initial system content,
+rewriting the prefix when a node opens or closes. The local cachetree GPT
+profiles now declare this capability. This setting must reflect provider
+support; it is not enabled for models with unverified capabilities.
+
+## Durable message order
+
+Pi 0.87.1 can persist context-only custom messages after a turn without calling
+extension message handlers. Before admitting a user or custom steering/follow-up
+message, the plugin admits that durable tail first. Context preparation also
+reconciles the tail. This preserves source order across sampling commits and
+recovery, including a silent custom update followed by a queued custom message.
+Assistant and tool-result events retain normal sampling order; they do not
+trigger full replay while Spawn terminal staging may still be uncommitted.

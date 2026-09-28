@@ -4,7 +4,7 @@ const branch = { ...nonEmptyString, description: "ProjectBranch ID" };
 
 export const toolContracts = {
   read: {
-    description: "Read a ProjectBranch, inheritance, children and its active Agent binding from one fixed HEAD. revision is the change token and changes only when that ProjectBranch value changes. Use binding.agentId as the send recipient; binding may be null.",
+    description: "Read a ProjectBranch, inheritance, children and its active Agent binding from one fixed HEAD. revision is the change token and changes only when that ProjectBranch value changes. binding.agentId identifies a possible send recipient; binding may be null and does not establish transport reachability.",
     parameters: {
       type: "object",
       properties: { branch },
@@ -86,7 +86,7 @@ export const toolContracts = {
     },
   },
   observe: {
-    description: "Confirm receipt of a spinetree.message/v1 prompt using receiptId, leaseId and agentId=to from its JSON envelope. Observe during the prompt before replying with send to from, if present. agentId must be the non-ended recipient. Repeated observation is idempotent. leaseId is required while leased; queued/failed receipts cannot be observed. Observation does not assert task completion.",
+    description: "Confirm receipt of a spinetree.message/v1 prompt using receiptId, leaseId and agentId=to from its JSON envelope. Observe during the prompt. A reply to from, if present, requires a supported transport endpoint. agentId must be the non-ended recipient. Repeated observation is idempotent. leaseId is required while leased; queued/failed receipts cannot be observed. Observation does not assert task completion.",
     parameters: {
       type: "object",
       properties: {

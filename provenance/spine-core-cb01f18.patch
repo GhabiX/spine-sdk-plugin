@@ -1,0 +1,1228 @@
+diff --git a/codex-rs/spine-core/config/spine.toml b/codex-rs/spine-core/config/spine.toml
+index f83f02a78b..1d2c46f65a 100644
+--- a/codex-rs/spine-core/config/spine.toml
++++ b/codex-rs/spine-core/config/spine.toml
+@@ -2,73 +2,38 @@ schema_version = 1
+ 
+ [prompt]
+ jit = '''<spine_instruction>
+-Recursive Divide and Conquer with Spine:
++All substantive work MUST take place within explicit SpineBranches.
+ 
+-All substantive work **MUST** proceed within recursively nested minimal logical work units called SpineBranches.
++Use recursive calls: each branch owns one outcome. Work toward that outcome there, including synthesis and routine checks. Open a direct child for a distinct unresolved subproblem needed for that outcome, and apply the same rule inside it.
+ 
+-A SpineBranch is a semantic call frame that owns one minimal, independently completable semantic obligation and manages it as one lifecycle and one context-reduction unit. It inherits context from its parent, owns a local trajectory, may recursively invoke child SpineBranches as new semantic subtasks emerge, and eventually returns reduced memory to its parent. Primitive mechanical actions used to complete the current obligation may remain inside the current branch.
++The active branch is the innermost unclosed <spine_node>. spine.open enters its child. spine.close returns exactly one level. spine.next returns one level and enters a sibling under that parent. <spine_memory> carries a returned result. Runtime replaces completed local history with that memory.
+ 
+-You **MUST** divide and conquer into minimal logical work units using SpineBranch.
++When the local outcome is complete or cancelled, close the branch with its result. Continue in the parent; if its outcome is also complete, close it too. For new work, first reach the branch whose goal directly needs it, then open its child. Use spine.next only when that owner is your immediate parent. State the intended outcome in each goal.
+ 
+-Divide and Conquer promptly and recursively. When progress exposes a recognizable semantic work unit, first determine its nearest owning scope on the active path. Child relationships **MUST** follow direct semantic ownership: a child goal **MUST** be a direct sub-obligation in the active branch goal's decomposition. Work does not belong to the active branch merely because it was discovered or became actionable while working there.
++Work may span user turns. Apply corrections and cancellations immediately. Revisit completed work for new evidence, changed requirements, or a specific gap. Preserve unresolved obligations without claiming success.
+ 
+-Finalize a SpineBranch when its owned obligation is complete; if a user message is a new obligation rather than the current one, it exposes a semantic work unit that belongs at its owning level.
++Memory adds what continuation needs beyond inherited context and retained child results: local findings, changed conclusions, synthesis, and remaining obligations. Preserve necessary evidence and referents.
+ 
+-Create a SpineBranch for each semantic work unit promptly at its owning level before doing substantive work on it. If the active branch owns it, immediately use `spine.open`. Otherwise, do not perform that work in the active branch. Complete the active branch's owned obligation, then unwind toward the owning scope. At each level, if the current branch is the owning scope's completed direct child, use `spine.next` to replace it with the new true sibling. If it is a deeper completed descendant, use `spine.close`, complete the newly active branch's owned obligation, and repeat. If control has already returned to the owning scope, use `spine.open`. When uncertain whether work constitutes a semantic work unit, prefer creating a branch; uncertainty about ownership **MUST** be resolved before choosing where to attach it. SpineBranches partition semantic obligations, not primitive mechanical actions.
++Root coordinates; enter a branch before substantive work. Answer the user in any scope.
+ 
+-After semantic ownership determines the required Spine boundary, **OPTIMIZE**
+-execution for sampling efficiency:
++After ownership is settled, batch compatible ready work. When a transition is needed, co-issue ready work for its destination. Use at most one spine.open, spine.close, or spine.next per model response. Ordinary tools in that response belong to the destination scope; results needed to finish the old scope must already be known.
+ 
+-- **MINIMIZE** sampling requests / assistant turns and total visible-context
+-  pressure across turns.
+-- **ISSUE** all compatible ready ordinary tool calls in the same interaction. In
+-  Code Mode, **BATCH** them into the same `exec`.
+-- When the resulting branch already has compatible ready work, **CO-ISSUE** that
+-  work with the Spine transition in the same interaction. At most one
+-  `spine.open`, `spine.close`, or `spine.next` may occur in that interaction.
+-
+-Within a SpineBranch, substantive work may proceed locally while advancing its own obligation. When that trajectory exposes a child obligation, opening the child **SUSPENDS** the parent's local trajectory while the child is active. The child proceeds recursively under the same rules, returns reduced memory when finalized, and the parent then resumes from that returned memory. An active branch **MUST** advance **ONLY** its own obligation; work belonging to an ancestor or sibling **MUST WAIT** until control returns to that scope.
+-
+-When multiple independent child scopes are identified, **USE** `spine.spawn` when enabled; otherwise **PROCESS THEM SEQUENTIALLY** with `spine.open` and `spine.next`.
+-
+-The root scope is **ORCHESTRATION-ONLY**. If active at root, **FIRST OPEN A SPINEBRANCH** before substantive work; all substantive work **MUST** belong to an explicit SpineBranch.
+-
+-Spine boundary operations are ordinary low-overhead tool calls. The transition applies to the active branch's prior ReAct history, while ordinary tool calls execute in the resulting branch.
+-
+-Notes:
+-
+-1. `<spine_memory>` contains reduced memory returned from finalized branches.
+-2. **ANSWER THE USER** regardless of which branch is active.
+-3. A SpineBranch's goal is user-visible, so **KEEP IT CONCISE AND CLEAR**.
++When multiple independent child scopes are identified, use spine.spawn when enabled; otherwise process them sequentially with spine.open and spine.next.
+ </spine_instruction>
+ '''
+-node = '''You have just entered this Spine branch. The immediately following
+-`spine.open` or `spine.next` call created it and is the **FIRST ACTION** owned by
+-this branch. **KEEP** subsequent investigation, edits, validation, and decisions
+-inside this branch while they serve its local work.
+-
+-As the local work progresses, give consideration to completing or precisely
+-bounding it and finalizing the branch.
+-
+-**BEFORE LEAVING, COMPLETE THE LOCAL WORK OR BOUND EVERY REMAINING UNCERTAINTY**.
+-Use `spine.next` **ONLY** when this branch is finished and the next work is a true
+-sibling under the same parent. Use `spine.close` **ONLY** when this branch is
+-finished and continuation belongs in its immediate parent. In either
+-transition, **PRESERVE** in `memory` the decisions, evidence, results, unresolved
+-risks, and remaining obligations needed for continuation; omitted detail may
+-be reloaded or reconstructed if it later matters.'''
++node = ""
+ spawn = ""
+ spawn_explicit_request_only = "**DO NOT USE** the MultiAgent collaboration tools to spawn sub-agents unless the user or applicable AGENTS.md/skill instructions **EXPLICITLY** ask for sub-agents, delegation, or parallel agent work. This restriction applies **ONLY** to the MultiAgent collaboration surface and does not restrict independently available tools such as spine.spawn."
+ spawn_proactive = "Proactive MultiAgent collaboration is active. Any earlier instruction requiring an explicit user request before using the MultiAgent collaboration tools **NO LONGER APPLIES**. **USE** those collaboration tools when parallel work would materially improve speed or quality. This policy does not govern independent tools such as spine.spawn. This mode **REMAINS ACTIVE** until a later multi-agent mode developer message changes it."
+ 
+ [tools.open]
+-description = "Enter a direct child branch under the active branch for a local subtask. The subtask may be partially known; a plausible goal and lifecycle are enough to open it. The child inherits the parent context and **OWNS** the context produced by its work. `spine.open` **DOES NOT** reduce context; reduction occurs when the branch is finalized with `spine.close` or `spine.next`. Co-issued ordinary tools execute in and **BELONG TO THE CHILD**; the transition applies to the active branch's prior ReAct history."
++description = "Enter a direct child for goal. Opening preserves context and leaves earlier work in its existing scope."
+ 
+ [tools.close]
+-description = "**WHEN** the active branch's local work is **COMPLETE**, finalize it, replace its local working context with returned memory, and return to its immediate parent. The root epoch **CANNOT** be finalized or closed. Co-issued ordinary tools execute in and **BELONG TO THE PARENT**; the transition applies to the active branch's prior ReAct history."
++description = "Finalize the local scope with memory and return to the immediate parent. Root cannot close."
+ 
+ [tools.next]
+-description = "**WHEN** the active branch's local work is **COMPLETE**, finalize it, replace its local working context with returned memory in the parent, and enter a sibling branch under that parent. The sibling receives the parent context, including the finalized branch's memory, and **OWNS** the context produced by its work. The root epoch has no parent, so `spine.next` is **INVALID** there. Co-issued ordinary tools execute in and **BELONG TO THE SIBLING**; the transition applies to the active branch's prior ReAct history."
++description = "Finalize the local scope with memory and enter another child of the same parent for goal. Root cannot next."
+ 
+ [tools.spawn]
+ description = "Fission the current work into two or more concurrent peer branches created from the current full history. Each branch receives a differentiated assignment and **MUST OWN** a semantically independent direction: either resolve a concrete uncertainty or produce an independently verifiable outcome, with an explicit scope, evidence boundary, and completion predicate. A branch may investigate, review, or implement directly and **MUST RETURN** one terminal final memory. **GIVE EVERY BRANCH** a concise summary that is unique within this spawn call; the runtime uses it as the branch's public identity. Every spine.spawn call uses one task-local shared blackboard directory. **BEFORE** calling spine.spawn, the parent **MUST** provision the directory and repeat the same `Shared blackboard: <path>` line in every task prompt so branches can coordinate, share useful findings, and reduce duplicated exploration. For exploration or review, **TREAT** inherited analytical conclusions as hypotheses to verify, refine, or falsify against primary evidence. The original continuation is **SUSPENDED** during the fission; **NO SUPERVISORY MODEL REMAINS ACTIVE**. Join waits for every branch, records their terminal results as finalized task branches under the current Spine scope atomically in input order, and then resumes the original continuation. Call spine.spawn **AT MOST ONCE** in one model response; **PLACE EVERY CONCURRENT BRANCH** in that call's tasks array. Use spine.spawn **ONLY** when the current work has at least two substantial, self-contained, independently completable branches and concurrent execution would materially improve speed or result quality. Each branch **MUST** be able to complete with a bounded fallback rather than depending on another branch's result. For one bounded delegated subtask, incremental assistance, or work that benefits from ongoing parent supervision, **USE** the ordinary multi-agent spawn tool when available or continue locally. **DO NOT** spawn paraphrased branches over the same tightly coupled question unless they are deliberately assigned as independent replication or falsification. Branch workspace and external effects are non-transactional, so production-file writes **REQUIRE** disjoint ownership or one explicitly named integration owner."
+diff --git a/codex-rs/spine-core/src/config.rs b/codex-rs/spine-core/src/config.rs
+index e9674238e4..de4c8e92f5 100644
+--- a/codex-rs/spine-core/src/config.rs
++++ b/codex-rs/spine-core/src/config.rs
+@@ -291,6 +291,8 @@ impl SpineConfig {
+         1
+     }
+ 
++    /// Compose raw host instructions with the enabled Spine segments.
++    /// Call once per request from the original host text, not a prior composed result.
+     pub fn extend_system_prompt(&self, base: &str) -> String {
+         crate::prompt::extend(base.to_owned(), self)
+     }
+@@ -337,7 +339,6 @@ impl SpineConfig {
+     fn validate_features(&self) -> Result<(), crate::InitError> {
+         if self.is_enabled(Feature::Jit) {
+             require_prompt(self.prompt(Feature::Jit), Feature::Jit)?;
+-            require_configured_prompt(self.node_prompt(), Feature::Jit)?;
+             for name in ["open", "close", "next"] {
+                 require_tool(self.tool_description(name), name)?;
+             }
+@@ -578,6 +579,27 @@ description = "spawn description"
+         );
+     }
+ 
++    #[test]
++    fn optional_node_prompt_roundtrips_with_enabled_features() {
++        for (node_config, expected) in [
++            ("", None),
++            ("node = \"\"", None),
++            ("node = \"custom boundary\"", Some("custom boundary")),
++        ] {
++            let source = VALID.replace("node = \"node prompt\"", node_config);
++            let config = SpineConfig::parse_toml(&source)
++                .unwrap()
++                .with_features([Feature::Jit, Feature::Spawn])
++                .unwrap();
++            assert_eq!(config.node_prompt(), expected);
++            let restored = SpineConfig::parse_toml(&config.snapshot_toml().unwrap())
++                .unwrap()
++                .with_features([Feature::Jit, Feature::Spawn])
++                .unwrap();
++            assert_eq!(restored, config);
++        }
++    }
++
+     #[test]
+     fn rejects_unknown_fields_and_bounds_model_visible_text() {
+         assert!(matches!(
+diff --git a/codex-rs/spine-core/src/context_plan.rs b/codex-rs/spine-core/src/context_plan.rs
+index d3c7825430..27d734c7e6 100644
+--- a/codex-rs/spine-core/src/context_plan.rs
++++ b/codex-rs/spine-core/src/context_plan.rs
+@@ -2,7 +2,6 @@ use crate::ContextEpoch;
+ use crate::ContextItem;
+ use crate::ContextLabel;
+ use crate::MAX_VISIBLE_CONTEXT_ITEMS;
+-use crate::MemorySlot;
+ use crate::ProjectionCellId;
+ use crate::RecordDigest;
+ use crate::SourceCellId;
+@@ -12,21 +11,21 @@ use serde::Serialize;
+ use std::collections::BTreeSet;
+ use std::fmt;
+ 
+-pub const CONTEXT_PLAN_SCHEMA_V1: &str = "spine.context.plan.v1";
++pub const CONTEXT_PLAN_SCHEMA_V2: &str = "spine.context.plan.v2";
+ pub const MAX_CONTEXT_PLAN_BYTES: usize = 2 * 1024 * 1024;
+-pub const MAX_CONTEXT_PLAN_MEMORY_SLOTS: usize = MAX_VISIBLE_CONTEXT_ITEMS;
+ pub const MAX_CONTEXT_LABELS_PER_SOURCE: usize = 1;
+ 
++/// Current ordered projection only; historical memory belongs to the semantic tree.
+ #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+ #[serde(deny_unknown_fields)]
+ pub struct ContextPlanRecipe {
++    #[serde(deserialize_with = "deserialize_plan_schema")]
+     pub schema: String,
+     pub thread: ThreadNamespace,
+     pub epoch: ContextEpoch,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub source_snapshot_digest: Option<RecordDigest>,
+     pub cells: Vec<ContextPlanCell>,
+-    pub memory_slots: Vec<MemorySlot>,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub plan_digest: Option<RecordDigest>,
+ }
+@@ -47,7 +46,6 @@ pub enum ContextPlanCell {
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub struct ResolvedContextPlan {
+     pub cells: Vec<ResolvedContextCell>,
+-    pub memory_slots: Vec<MemorySlot>,
+ }
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+@@ -83,10 +81,6 @@ pub enum ContextPlanError {
+         max: usize,
+         actual: usize,
+     },
+-    TooManyMemorySlots {
+-        max: usize,
+-        actual: usize,
+-    },
+     DuplicateSourceCell(SourceCellId),
+     DuplicateProjectionCell(ProjectionCellId),
+     InvalidSourceLabels {
+@@ -148,14 +142,11 @@ impl ContextPlanRecipe {
+                 }),
+             })
+             .collect::<Result<Vec<_>, _>>()?;
+-        Ok(ResolvedContextPlan {
+-            cells,
+-            memory_slots: self.memory_slots.clone(),
+-        })
++        Ok(ResolvedContextPlan { cells })
+     }
+ 
+     fn validate_structure(&self) -> Result<(), ContextPlanError> {
+-        if self.schema != CONTEXT_PLAN_SCHEMA_V1 {
++        if self.schema != CONTEXT_PLAN_SCHEMA_V2 {
+             return Err(ContextPlanError::UnsupportedSchema {
+                 actual: self.schema.clone(),
+             });
+@@ -166,12 +157,6 @@ impl ContextPlanRecipe {
+                 actual: self.cells.len(),
+             });
+         }
+-        if self.memory_slots.len() > MAX_CONTEXT_PLAN_MEMORY_SLOTS {
+-            return Err(ContextPlanError::TooManyMemorySlots {
+-                max: MAX_CONTEXT_PLAN_MEMORY_SLOTS,
+-                actual: self.memory_slots.len(),
+-            });
+-        }
+ 
+         let mut source_ids = BTreeSet::new();
+         let mut projection_ids = BTreeSet::new();
+@@ -247,10 +232,6 @@ impl fmt::Display for ContextPlanError {
+                     "context plan has {actual} cells; maximum is {max}"
+                 )
+             }
+-            Self::TooManyMemorySlots { max, actual } => write!(
+-                formatter,
+-                "context plan has {actual} memory slots; maximum is {max}"
+-            ),
+             Self::DuplicateSourceCell(source_id) => {
+                 write!(formatter, "duplicate source cell {source_id:?}")
+             }
+@@ -287,3 +268,16 @@ impl fmt::Display for ContextPlanError {
+ }
+ 
+ impl std::error::Error for ContextPlanError {}
++
++fn deserialize_plan_schema<'de, D>(deserializer: D) -> Result<String, D::Error>
++where
++    D: serde::Deserializer<'de>,
++{
++    let schema = String::deserialize(deserializer)?;
++    if schema != CONTEXT_PLAN_SCHEMA_V2 {
++        return Err(serde::de::Error::custom(format!(
++            "unsupported context plan schema {schema}"
++        )));
++    }
++    Ok(schema)
++}
+diff --git a/codex-rs/spine-core/src/context_plan_tests.rs b/codex-rs/spine-core/src/context_plan_tests.rs
+index a331949219..b14e835352 100644
+--- a/codex-rs/spine-core/src/context_plan_tests.rs
++++ b/codex-rs/spine-core/src/context_plan_tests.rs
+@@ -13,7 +13,7 @@ use crate::SourceCellId;
+ use crate::SpawnOutcome;
+ use crate::SpawnTask;
+ use crate::ThreadNamespace;
+-use crate::context_plan::CONTEXT_PLAN_SCHEMA_V1;
++use crate::context_plan::CONTEXT_PLAN_SCHEMA_V2;
+ use crate::context_plan::ContextCellProvenance;
+ use crate::context_plan::ContextPlanCell;
+ use crate::context_plan::ContextPlanError;
+@@ -67,40 +67,32 @@ fn user_item(boundary: u64, body: &str) -> ContextItem {
+     }
+ }
+ 
+-fn memory_slots() -> Vec<MemorySlot> {
+-    vec![
+-        MemorySlot::User {
+-            owner_node: NodeId::root_epoch(3),
+-            message: Message {
+-                boundary: RawBoundary(1),
+-                role: MessageRole::User,
+-                content: "request".to_string(),
+-            },
+-            anchor: 1,
++fn summary() -> ContextItem {
++    ContextItem::MemorySlot(MemorySlot::Summary {
++        owner_node: NodeId::root_epoch(3).child(1),
++        source: RawSpan {
++            start: RawBoundary(2),
++            end: RawBoundary(4),
+         },
+-        MemorySlot::Summary {
+-            owner_node: NodeId::root_epoch(3).child(1),
+-            source: RawSpan {
+-                start: RawBoundary(2),
+-                end: RawBoundary(4),
+-            },
+-            body: "closed memory".to_string(),
++        body: "closed memory".to_string(),
++    })
++}
++
++fn spawn_evidence() -> ContextItem {
++    ContextItem::MemorySlot(MemorySlot::SpawnEvidence {
++        owner_node: NodeId::root_epoch(3).child(2),
++        source: RawSpan {
++            start: RawBoundary(5),
++            end: RawBoundary(6),
+         },
+-        MemorySlot::SpawnEvidence {
+-            owner_node: NodeId::root_epoch(3),
+-            source: RawSpan {
+-                start: RawBoundary(5),
+-                end: RawBoundary(6),
+-            },
+-            task: SpawnTask {
+-                summary: "audit".to_string(),
+-                prompt: "inspect".to_string(),
+-            },
+-            outcome: SpawnOutcome::Completed,
+-            diagnostic: None,
+-            execution_ref: Some("exec-1".to_string()),
++        task: SpawnTask {
++            summary: "audit".to_string(),
++            prompt: "inspect".to_string(),
+         },
+-    ]
++        outcome: SpawnOutcome::Completed,
++        diagnostic: None,
++        execution_ref: Some("exec-1".to_string()),
++    })
+ }
+ 
+ fn source() -> TestSource {
+@@ -123,7 +115,7 @@ fn source() -> TestSource {
+ 
+ fn recipe() -> ContextPlanRecipe {
+     ContextPlanRecipe {
+-        schema: CONTEXT_PLAN_SCHEMA_V1.to_string(),
++        schema: CONTEXT_PLAN_SCHEMA_V2.to_string(),
+         thread: namespace(),
+         epoch: ContextEpoch::new(3),
+         source_snapshot_digest: None,
+@@ -144,8 +136,15 @@ fn recipe() -> ContextPlanRecipe {
+                 source_id: source_id(2),
+                 labels: Vec::new(),
+             },
++            ContextPlanCell::Projection {
++                projection_id: projection_id(2),
++                item: summary(),
++            },
++            ContextPlanCell::Projection {
++                projection_id: projection_id(3),
++                item: spawn_evidence(),
++            },
+         ],
+-        memory_slots: memory_slots(),
+         plan_digest: None,
+     }
+     .finalize()
+@@ -153,7 +152,7 @@ fn recipe() -> ContextPlanRecipe {
+ }
+ 
+ #[test]
+-fn context_plan_roundtrips_and_resolves_complete_memory_slots() {
++fn context_plan_roundtrips_and_resolves_ordered_source_and_memory_cells() {
+     let recipe = recipe();
+     let encoded = serde_json::to_vec(&recipe).expect("serialize");
+     let decoded: ContextPlanRecipe = serde_json::from_slice(&encoded).expect("deserialize");
+@@ -186,8 +185,17 @@ fn context_plan_roundtrips_and_resolves_complete_memory_slots() {
+                     },
+                     labels: Vec::new(),
+                 },
++                ResolvedContextCell {
++                    provenance: ContextCellProvenance::Projection(projection_id(2)),
++                    item: summary(),
++                    labels: Vec::new(),
++                },
++                ResolvedContextCell {
++                    provenance: ContextCellProvenance::Projection(projection_id(3)),
++                    item: spawn_evidence(),
++                    labels: Vec::new(),
++                },
+             ],
+-            memory_slots: memory_slots(),
+         }
+     );
+     let json = String::from_utf8(encoded).expect("utf8");
+@@ -199,7 +207,7 @@ fn context_plan_keeps_source_identity_across_close_and_next_projection_changes()
+     let close = recipe();
+     let mut next = close.clone();
+     next.cells[1] = ContextPlanCell::Projection {
+-        projection_id: projection_id(2),
++        projection_id: projection_id(4),
+         item: ContextItem::SyntheticNode {
+             node_id: NodeId::root_epoch(3).child(2),
+             summary: "next task".to_string(),
+@@ -279,21 +287,75 @@ fn context_plan_rejects_duplicate_or_excess_source_labels() {
+ }
+ 
+ #[test]
+-fn context_plan_accepts_synthetic_bytes_beyond_one_mib() {
++fn context_plan_limits_current_projection_bytes() {
+     let mut recipe = recipe();
+-    recipe.memory_slots.push(MemorySlot::Summary {
+-        owner_node: NodeId::root_epoch(3).child(1),
+-        source: RawSpan {
+-            start: RawBoundary(7),
+-            end: RawBoundary(8),
+-        },
+-        body: "x".repeat(1024 * 1024 + 1),
+-    });
+-    let recipe = recipe
++    let ContextPlanCell::Projection {
++        item: ContextItem::MemorySlot(MemorySlot::Summary { body, .. }),
++        ..
++    } = &mut recipe.cells[3]
++    else {
++        panic!("summary projection");
++    };
++    *body = "x".repeat(1024 * 1024 + 1);
++    let mut recipe = recipe
+         .finalize()
+-        .expect("synthetic Node Memory is not capped at 1MiB");
+-    let MemorySlot::Summary { body, .. } = recipe.memory_slots.last().expect("summary") else {
+-        panic!("last memory slot must be the oversized summary");
++        .expect("current synthetic content below recipe cap");
++    let ContextPlanCell::Projection {
++        item: ContextItem::MemorySlot(MemorySlot::Summary { body, .. }),
++        ..
++    } = &mut recipe.cells[3]
++    else {
++        panic!("summary projection");
+     };
+-    assert_eq!(body.len(), 1024 * 1024 + 1);
++    *body = "x".repeat(crate::context_plan::MAX_CONTEXT_PLAN_BYTES);
++    let actual_bytes = serde_json::to_vec(&recipe).expect("encode").len();
++    assert_eq!(
++        recipe.finalize(),
++        Err(ContextPlanError::RecipeTooLarge {
++            max_bytes: crate::context_plan::MAX_CONTEXT_PLAN_BYTES,
++            actual_bytes,
++        })
++    );
++}
++
++#[test]
++fn context_plan_codec_rejects_other_contracts() {
++    let value = serde_json::to_value(recipe()).expect("encode v2");
++    for schema in ["spine.context.plan.v1", "spine.context.plan.unknown"] {
++        let mut other = value.clone();
++        other["schema"] = serde_json::json!(schema);
++        assert!(serde_json::from_value::<ContextPlanRecipe>(other).is_err());
++    }
++    let mut old_shape = value;
++    old_shape["memory_slots"] = serde_json::json!([]);
++    assert!(serde_json::from_value::<ContextPlanRecipe>(old_shape).is_err());
++}
++
++#[test]
++fn context_plan_preserves_source_and_cell_bounds() {
++    let recipe = recipe();
++    let mut source = source();
++    source.epoch = ContextEpoch::new(4);
++    assert_eq!(
++        recipe.resolve(&source),
++        Err(ContextPlanError::SourceSnapshotScopeMismatch)
++    );
++    source.epoch = ContextEpoch::new(3);
++    source.cells.remove(&source_id(1));
++    assert_eq!(
++        recipe.resolve(&source),
++        Err(ContextPlanError::MissingSourceCell(source_id(1)))
++    );
++    let mut oversized = recipe;
++    oversized.cells.resize(
++        crate::MAX_VISIBLE_CONTEXT_ITEMS + 1,
++        oversized.cells[0].clone(),
++    );
++    assert_eq!(
++        oversized.finalize(),
++        Err(ContextPlanError::TooManyCells {
++            max: crate::MAX_VISIBLE_CONTEXT_ITEMS,
++            actual: crate::MAX_VISIBLE_CONTEXT_ITEMS + 1,
++        })
++    );
+ }
+diff --git a/codex-rs/spine-core/src/context_runtime.rs b/codex-rs/spine-core/src/context_runtime.rs
+index b7deb50964..46dfdbb31f 100644
+--- a/codex-rs/spine-core/src/context_runtime.rs
++++ b/codex-rs/spine-core/src/context_runtime.rs
+@@ -353,6 +353,8 @@ where
+         &self.tools
+     }
+ 
++    /// Compose raw host instructions with the enabled Spine segments.
++    /// Call once per request from the original host text, not a prior composed result.
+     pub fn extend_system_prompt(&self, base: &str) -> String {
+         self.compiler.extend_system_prompt(base)
+     }
+diff --git a/codex-rs/spine-core/src/lib.rs b/codex-rs/spine-core/src/lib.rs
+index bf54020583..e51dd27779 100644
+--- a/codex-rs/spine-core/src/lib.rs
++++ b/codex-rs/spine-core/src/lib.rs
+@@ -34,7 +34,6 @@ pub(crate) use context_char::CharParseError;
+ pub(crate) use context_char::SpineCharParser;
+ pub(crate) use context_event::ContextEventError;
+ pub(crate) use context_plan::ContextPlanError;
+-pub(crate) use context_plan::ResolvedContextPlan;
+ pub(crate) use context_runtime::SpineContextProjection;
+ pub(crate) use executed_fact::ExecutedFactError;
+ pub(crate) use executed_fact::ExecutedSpineFact;
+@@ -91,7 +90,7 @@ pub mod host {
+     pub use super::context_event::ContextInsert;
+     pub use super::context_event::ContextLabel;
+     pub use super::context_event::SpineContextEventHandler;
+-    pub use super::context_plan::CONTEXT_PLAN_SCHEMA_V1;
++    pub use super::context_plan::CONTEXT_PLAN_SCHEMA_V2;
+     pub use super::context_plan::ContextCellProvenance;
+     pub use super::context_plan::ContextPlanCell;
+     pub use super::context_plan::ContextPlanRecipe;
+diff --git a/codex-rs/spine-core/src/planner.rs b/codex-rs/spine-core/src/planner.rs
+index 25adeb0d3f..2295a75887 100644
+--- a/codex-rs/spine-core/src/planner.rs
++++ b/codex-rs/spine-core/src/planner.rs
+@@ -189,12 +189,7 @@ impl SamplingPlanner {
+         post_boundary: BoundaryId,
+         commit_id: SamplingCommitId,
+     ) -> Result<PreparedSamplingCommit, PlannerError> {
+-        self.prepare_sampling_with_input_tokens(
+-            sealed,
+-            post_boundary,
+-            commit_id,
+-            None,
+-        )
++        self.prepare_sampling_with_input_tokens(sealed, post_boundary, commit_id, None)
+     }
+ 
+     pub(crate) fn prepare_sampling_with_input_tokens(
+diff --git a/codex-rs/spine-core/src/planner/context_builder.rs b/codex-rs/spine-core/src/planner/context_builder.rs
+index 7f8dc2a59c..54ce4fd1e1 100644
+--- a/codex-rs/spine-core/src/planner/context_builder.rs
++++ b/codex-rs/spine-core/src/planner/context_builder.rs
+@@ -13,7 +13,7 @@ use crate::SourceCellId;
+ use crate::SourceCellPayload;
+ use crate::SourceSnapshot;
+ use crate::SpineProjection;
+-use crate::context_plan::CONTEXT_PLAN_SCHEMA_V1;
++use crate::context_plan::CONTEXT_PLAN_SCHEMA_V2;
+ use std::collections::BTreeSet;
+ 
+ pub(crate) fn build_context_plan(
+@@ -45,19 +45,12 @@ pub(crate) fn build_context_plan(
+             .ok_or(PlannerError::MissingSourceBoundary(*boundary))?;
+         builder.push_source(&cell, Vec::new());
+     }
+-    let memory_slots = projection
+-        .nodes
+-        .iter()
+-        .flat_map(|node| node.memory.iter().flatten())
+-        .cloned()
+-        .collect();
+     ContextPlanRecipe {
+-        schema: CONTEXT_PLAN_SCHEMA_V1.to_string(),
++        schema: CONTEXT_PLAN_SCHEMA_V2.to_string(),
+         thread: source.thread().clone(),
+         epoch: source.epoch(),
+         source_snapshot_digest: None,
+         cells: builder.cells,
+-        memory_slots,
+         plan_digest: None,
+     }
+     .finalize()
+@@ -213,11 +206,8 @@ impl ContextPlanBuilder<'_> {
+     fn allocate_projection_id(&self) -> ProjectionCellId {
+         let mut ordinal = 0u64;
+         loop {
+-            let id = ProjectionCellId::new(
+-                self.source.thread().clone(),
+-                self.source.epoch(),
+-                ordinal,
+-            );
++            let id =
++                ProjectionCellId::new(self.source.thread().clone(), self.source.epoch(), ordinal);
+             if !self.used_projection.contains(&id) {
+                 return id;
+             }
+diff --git a/codex-rs/spine-core/src/prompt.rs b/codex-rs/spine-core/src/prompt.rs
+index 1c5943261a..4f5921c9fc 100644
+--- a/codex-rs/spine-core/src/prompt.rs
++++ b/codex-rs/spine-core/src/prompt.rs
+@@ -1,34 +1,15 @@
+-//! Configured, feature-gated prompt extension.
++//! Deterministic composition of raw host instructions and feature-gated segments.
+ 
+ use crate::Feature;
+ use crate::SpineConfig;
+ 
+-const SPINE_INSTRUCTION_START_MARKER: &str = "\n\n<spine_instruction>";
+-const LEGACY_SPINE_VIEW_START_MARKER: &str = "\n\n<spine_view>";
+-
+ pub(crate) fn extend(mut base: String, config: &SpineConfig) -> String {
+-    if config.is_enabled(Feature::Jit) {
+-        let start = [
+-            base.rfind(SPINE_INSTRUCTION_START_MARKER),
+-            base.rfind(LEGACY_SPINE_VIEW_START_MARKER),
+-        ]
+-        .into_iter()
+-        .flatten()
+-        .min();
+-        if let Some(start) = start {
+-            base.truncate(start);
+-        }
+-    }
+-
+     let segments = [Feature::Jit, Feature::Spawn]
+         .into_iter()
+         .filter(|feature| config.is_enabled(*feature))
+         .map(|feature| config.prompt(feature))
+         .filter(|segment| !segment.is_empty());
+     for segment in segments {
+-        if base.contains(segment) {
+-            continue;
+-        }
+         if !base.is_empty() {
+             base.push_str("\n\n");
+         }
+@@ -41,57 +22,71 @@ pub(crate) fn extend(mut base: String, config: &SpineConfig) -> String {
+ mod tests {
+     use super::*;
+ 
+-    #[test]
+-    fn feature_off_is_identity() {
+-        let config = SpineConfig::v1();
+-        assert_eq!(extend("base".to_string(), &config), "base");
+-    }
+-
+-    #[test]
+-    fn configured_segment_is_idempotent() {
+-        let config = SpineConfig::parse_toml(
+-            r#"schema_version = 1
++    const CONFIG: &str = r#"schema_version = 1
+ [prompt]
+ jit = "<spine_instruction>jit</spine_instruction>"
+-node = "node prompt"
++spawn = "spawn"
++spawn_explicit_request_only = "explicit"
++spawn_proactive = "proactive"
+ [tools.open]
+ description = "open"
+ [tools.close]
+ description = "close"
+ [tools.next]
+ description = "next"
+-"#,
+-        )
+-        .unwrap();
+-        let config = config.with_feature(Feature::Jit).unwrap();
+-        let once = extend("base".to_string(), &config);
+-        assert_eq!(extend(once.clone(), &config), once);
+-    }
++[tools.spawn]
++description = "spawn"
++"#;
+ 
+     #[test]
+-    fn configured_segment_replaces_the_legacy_wrapper_once() {
+-        let config = SpineConfig::parse_toml(
+-            r#"schema_version = 1
+-[prompt]
+-jit = "<spine_instruction>jit</spine_instruction>"
+-node = "node prompt"
+-[tools.open]
+-description = "open"
+-[tools.close]
+-description = "close"
+-[tools.next]
+-description = "next"
+-"#,
+-        )
+-        .unwrap()
+-        .with_feature(Feature::Jit)
+-        .unwrap();
++    fn feature_off_is_identity() {
++        let config = SpineConfig::v1();
++        let base = " host \n\n<spine_instruction>example</spine_instruction>\n tail ";
++        assert_eq!(extend(base.to_string(), &config), base);
++    }
+ 
+-        let actual = extend(
+-            "base\n\n<spine_view>legacy</spine_view>".to_string(),
+-            &config,
+-        );
++    #[test]
++    fn raw_host_text_is_preserved_and_composition_is_repeatable() {
++        let config = SpineConfig::parse_toml(CONFIG)
++            .unwrap()
++            .with_feature(Feature::Jit)
++            .unwrap();
++        for base in [
++            " host \n\n<spine_instruction>example</spine_instruction>\n tail ",
++            "host\n\n<spine_view>example</spine_view>\n tail",
++            "host\n\n<spine_instruction>jit</spine_instruction>\n tail",
++        ] {
++            let expected = format!("{base}\n\n{}", config.prompt(Feature::Jit));
++            assert_eq!(extend(base.to_string(), &config), expected);
++            assert_eq!(extend(base.to_string(), &config), expected);
++        }
++    }
+ 
+-        assert_eq!(actual, "base\n\n<spine_instruction>jit</spine_instruction>");
++    #[test]
++    fn configured_sources_have_fixed_order_and_separators() {
++        for source in [
++            CONFIG.to_string(),
++            CONFIG.replace(
++                "spawn = \"spawn\"",
++                "spawn = \"<spine_instruction>jit</spine_instruction>\"",
++            ),
++        ] {
++            for features in [vec![Feature::Jit], vec![Feature::Spawn, Feature::Jit]] {
++                let config = SpineConfig::parse_toml(&source)
++                    .unwrap()
++                    .with_features(features)
++                    .unwrap();
++                let mut segments = vec![config.prompt(Feature::Jit)];
++                if config.is_enabled(Feature::Spawn) {
++                    segments.push(config.prompt(Feature::Spawn));
++                }
++                let expected = segments.join("\n\n");
++                assert_eq!(extend(String::new(), &config), expected);
++                assert_eq!(
++                    extend("base".to_string(), &config),
++                    format!("base\n\n{expected}")
++                );
++            }
++        }
+     }
+ }
+diff --git a/codex-rs/spine-core/src/replay.rs b/codex-rs/spine-core/src/replay.rs
+index 78edac3ed3..61626716bd 100644
+--- a/codex-rs/spine-core/src/replay.rs
++++ b/codex-rs/spine-core/src/replay.rs
+@@ -1,7 +1,6 @@
+ use crate::ContextEpoch;
+ use crate::ContextItem;
+ use crate::ContextPlanRecipe;
+-use crate::MemorySlot;
+ use crate::RawBoundary;
+ use crate::SamplingArchiveRecord;
+ use crate::SamplingAttemptId;
+@@ -38,8 +37,6 @@ use crate::sampling_delta::SamplingDeltaError;
+ use crate::sampling_delta::reduce_compact_delta;
+ use crate::sampling_delta::reduce_sampling_delta;
+ use apply::map_compile_error;
+-use apply::projection_memory_slots;
+-use apply::verify_memory_slots;
+ pub use compact::SpineCompactBarrierV1;
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+@@ -70,7 +67,6 @@ pub struct PreparedReplay {
+     pub projection: SpineProjection,
+     pub live_context: Vec<ContextItem>,
+     pub live_plan: Option<ContextPlanRecipe>,
+-    pub memory_slots: Vec<MemorySlot>,
+     pub usage_samples: Vec<TokenUsageSample>,
+     pub tree: TreeSnapshot,
+     pub applied_commits: Vec<SamplingCommitId>,
+@@ -97,7 +93,6 @@ pub enum ReplayError {
+     PostBoundaryIsNotSourceTail,
+     SourceDigestMismatch,
+     FactSourceMissing,
+-    MemorySlotMismatch,
+     InvalidCompactBarrier(&'static str),
+     Serialize(String),
+ }
+@@ -442,19 +437,15 @@ impl ReplayState {
+         } else {
+             committed_plan
+         };
+-        let (live_context, memory_slots) = match &live_plan {
+-            Some(plan) => {
+-                let resolved = plan.resolve(&snapshot).map_err(ReplayError::ContextPlan)?;
+-                verify_memory_slots(&projection, &resolved)?;
+-                (
+-                    resolved.cells.into_iter().map(|cell| cell.item).collect(),
+-                    resolved.memory_slots,
+-                )
+-            }
+-            None => (
+-                projection.visible_context.clone(),
+-                projection_memory_slots(&projection),
+-            ),
++        let live_context = match &live_plan {
++            Some(plan) => plan
++                .resolve(&snapshot)
++                .map_err(ReplayError::ContextPlan)?
++                .cells
++                .into_iter()
++                .map(|cell| cell.item)
++                .collect(),
++            None => projection.visible_context.clone(),
+         };
+         let next_attempt = u64::try_from(
+             self.attempt_ids
+@@ -475,7 +466,6 @@ impl ReplayState {
+             projection,
+             live_context,
+             live_plan,
+-            memory_slots,
+             usage_samples: self.usage_samples,
+             tree,
+             applied_commits: self.applied_commits,
+@@ -533,9 +523,6 @@ impl fmt::Display for ReplayError {
+             Self::FactSourceMissing => {
+                 formatter.write_str("replay fact has no matching stable source span")
+             }
+-            Self::MemorySlotMismatch => {
+-                formatter.write_str("replayed memory differs from the durable memory sequence")
+-            }
+             Self::InvalidCompactBarrier(reason) => {
+                 write!(formatter, "invalid compact barrier: {reason}")
+             }
+diff --git a/codex-rs/spine-core/src/replay/apply.rs b/codex-rs/spine-core/src/replay/apply.rs
+index d64eb4aef0..5dee2c4802 100644
+--- a/codex-rs/spine-core/src/replay/apply.rs
++++ b/codex-rs/spine-core/src/replay/apply.rs
+@@ -1,28 +1,6 @@
+ use super::ReplayError;
+-use crate::MemorySlot;
+-use crate::ResolvedContextPlan;
+-use crate::SpineProjection;
+ use crate::compiler::SamplingCompileError;
+ 
+-pub(super) fn verify_memory_slots(
+-    projection: &SpineProjection,
+-    resolved: &ResolvedContextPlan,
+-) -> Result<(), ReplayError> {
+-    if projection_memory_slots(projection) != resolved.memory_slots {
+-        return Err(ReplayError::MemorySlotMismatch);
+-    }
+-    Ok(())
+-}
+-
+-pub(super) fn projection_memory_slots(projection: &SpineProjection) -> Vec<MemorySlot> {
+-    projection
+-        .nodes
+-        .iter()
+-        .flat_map(|node| node.memory.iter().flatten())
+-        .cloned()
+-        .collect()
+-}
+-
+ pub(super) fn map_compile_error(error: SamplingCompileError) -> ReplayError {
+     match error {
+         SamplingCompileError::Spine(error) => ReplayError::Compile(error),
+diff --git a/codex-rs/spine-core/tests/recipe_memory_tests.rs b/codex-rs/spine-core/tests/recipe_memory_tests.rs
+new file mode 100644
+index 0000000000..3fa41c8aff
+--- /dev/null
++++ b/codex-rs/spine-core/tests/recipe_memory_tests.rs
+@@ -0,0 +1,369 @@
++use pretty_assertions::assert_eq;
++use spine_core::host::CanonicalReplay;
++use spine_core::host::ContextEpoch;
++use spine_core::host::ContextItem;
++use spine_core::host::ExecutionOrigin;
++use spine_core::host::Feature;
++use spine_core::host::MemorySlot;
++use spine_core::host::Message;
++use spine_core::host::MessageRole;
++use spine_core::host::RawBoundary;
++use spine_core::host::ReplayInput;
++use spine_core::host::SamplingArchiveRecord;
++use spine_core::host::SamplingFinish;
++use spine_core::host::SamplingRuntime;
++use spine_core::host::SamplingTerminal;
++use spine_core::host::SpawnOutcome;
++use spine_core::host::SpawnResult;
++use spine_core::host::SpawnTask;
++use spine_core::host::SpineChar;
++use spine_core::host::SpineCompactBarrierV1;
++use spine_core::host::SpineConfig;
++use spine_core::host::SpineOperationFact;
++use spine_core::host::ThreadNamespace;
++
++struct History {
++    runtime: SamplingRuntime,
++    inputs: Vec<ReplayInput>,
++    boundary: u64,
++    thread: ThreadNamespace,
++    config: SpineConfig,
++}
++
++impl History {
++    fn new(name: &str) -> Self {
++        let thread = ThreadNamespace::parse(name).expect("thread");
++        let config = SpineConfig::v1()
++            .with_features([Feature::Jit, Feature::Spawn])
++            .expect("config");
++        Self {
++            runtime: SamplingRuntime::new(thread.clone(), ContextEpoch::ZERO, config.clone())
++                .expect("runtime"),
++            inputs: Vec::new(),
++            boundary: 0,
++            thread,
++            config,
++        }
++    }
++
++    fn user(&mut self, content: &str) {
++        self.boundary += 1;
++        let character = SpineChar::Message(Message {
++            boundary: RawBoundary(self.boundary),
++            role: MessageRole::User,
++            content: content.to_string(),
++        });
++        self.runtime
++            .observe_source([character.clone()])
++            .expect("source");
++        self.inputs.push(ReplayInput::Source(character));
++    }
++
++    fn step(&mut self, operation: SpineOperationFact) {
++        let sampling = self.runtime.begin_sampling().expect("begin");
++        let started = self
++            .runtime
++            .sampling_started_record(&sampling)
++            .expect("started");
++        self.inputs.push(ReplayInput::Archive(started));
++        self.runtime
++            .register_execution("control")
++            .expect("register");
++        self.runtime
++            .stage_execution(
++                "control",
++                ExecutionOrigin::Direct {
++                    execution_ref: "control".to_string(),
++                },
++                operation,
++            )
++            .expect("stage");
++        self.boundary += 1;
++        let output = SpineChar::Opaque {
++            boundary: RawBoundary(self.boundary),
++        };
++        self.runtime
++            .observe_source([output.clone()])
++            .expect("source");
++        self.inputs.push(ReplayInput::Source(output));
++        self.runtime
++            .finish_execution("control", true)
++            .expect("execution");
++        let SamplingFinish::Prepared(prepared) = self
++            .runtime
++            .finish_sampling(sampling, SamplingTerminal::Completed)
++            .expect("prepare")
++        else {
++            panic!("completed sampling must prepare");
++        };
++        let record = SamplingArchiveRecord::SamplingCommit(prepared.durable_record().clone());
++        // Persistent authority remains the existing typed archive, not a recipe snapshot.
++        let encoded = serde_json::to_vec(&record).expect("archive encode");
++        let decoded = serde_json::from_slice(&encoded).expect("archive decode");
++        assert_eq!(record, decoded);
++        self.inputs.push(ReplayInput::Archive(decoded));
++        self.runtime.install_prepared(prepared).expect("install");
++    }
++
++    fn compact(&mut self) {
++        let barrier = SpineCompactBarrierV1::new(
++            self.thread.clone(),
++            self.runtime.epoch(),
++            self.runtime.epoch().checked_next().expect("epoch"),
++            RawBoundary(self.boundary),
++            vec![RawBoundary(self.boundary + 1)],
++        )
++        .expect("barrier");
++        self.boundary += 1;
++        self.runtime.compact(barrier.clone()).expect("compact");
++        self.inputs.push(ReplayInput::Compact(barrier));
++    }
++
++    fn replay(&self) -> SamplingRuntime {
++        let replay = CanonicalReplay::new(self.thread.clone())
++            .expect("replay")
++            .with_runtime_config(self.config.clone())
++            .expect("config");
++        let full = replay.prepare(self.inputs.clone()).expect("full replay");
++        let mut builder = replay.builder().expect("incremental replay");
++        for chunk in self.inputs.chunks(17) {
++            builder.apply(chunk.to_vec()).expect("replay chunk");
++        }
++        let chunked = builder.finish().expect("finish replay");
++        assert_eq!(full.projection, chunked.projection);
++        assert_eq!(full.live_plan, chunked.live_plan);
++        assert_eq!(full.live_context, chunked.live_context);
++        assert_eq!(full.tree, chunked.tree);
++        assert_eq!(full.applied_commits, chunked.applied_commits);
++        assert_eq!(&full.projection, self.runtime.projection());
++        let restored = full.into_runtime();
++        assert_eq!(restored.source_snapshot(), self.runtime.source_snapshot());
++        let current = self
++            .runtime
++            .preview_context_plan()
++            .expect("live plan")
++            .resolve(&self.runtime.source_snapshot())
++            .expect("live resolve");
++        let replayed = restored
++            .preview_context_plan()
++            .expect("replayed plan")
++            .resolve(&restored.source_snapshot())
++            .expect("replayed resolve");
++        // Projection ordinals are presentation identities; compare complete ordered semantic cells.
++        assert_eq!(
++            current
++                .cells
++                .into_iter()
++                .map(|cell| (cell.item, cell.labels))
++                .collect::<Vec<_>>(),
++            replayed
++                .cells
++                .into_iter()
++                .map(|cell| (cell.item, cell.labels))
++                .collect::<Vec<_>>()
++        );
++        restored
++    }
++}
++
++#[test]
++fn current_recipe_stays_bounded_across_historical_memory_and_compacts() {
++    let mut history = History::new("recipe-history");
++    let memory = "m".repeat(4096);
++    // This crosses the former failure sequence without declaring a product node-count limit.
++    for closed in 1..=520 {
++        history.step(SpineOperationFact::Open {
++            summary: "scope".to_string(),
++        });
++        history.step(SpineOperationFact::Close {
++            memory: memory.clone(),
++        });
++        if closed % 8 == 0 {
++            history.compact();
++            let plan = history
++                .runtime
++                .preview_context_plan()
++                .expect("compact plan");
++            assert_eq!(plan.cells.len(), 1);
++            assert!(serde_json::to_vec(&plan).expect("encode").len() < 512);
++        }
++    }
++    let summaries = history
++        .runtime
++        .projection()
++        .nodes
++        .iter()
++        .flat_map(|node| node.memory.iter().flatten())
++        .filter_map(|slot| match slot {
++            MemorySlot::Summary { body, .. } => Some(body),
++            _ => None,
++        })
++        .collect::<Vec<_>>();
++    assert_eq!(summaries, vec![&memory; 520]);
++    let restored = history.replay();
++    assert_eq!(
++        restored
++            .preview_context_plan()
++            .expect("replayed compact plan"),
++        history
++            .runtime
++            .preview_context_plan()
++            .expect("live compact plan")
++    );
++
++    history.step(SpineOperationFact::Open {
++        summary: "pending close".to_string(),
++    });
++    let sampling = history.runtime.begin_sampling().expect("orphan begin");
++    history.inputs.push(ReplayInput::Archive(
++        history
++            .runtime
++            .sampling_started_record(&sampling)
++            .expect("orphan started"),
++    ));
++    history.user("durable tail before failed close");
++    history.runtime = history.replay();
++    history.step(SpineOperationFact::Close {
++        memory: "recovered close".to_string(),
++    });
++    history.replay();
++}
++
++#[test]
++fn recipe_preserves_nested_user_child_and_spawn_memory_owners() {
++    let mut history = History::new("recipe-nested");
++    history.user("outer user evidence");
++    history.step(SpineOperationFact::Open {
++        summary: "parent".to_string(),
++    });
++    history.step(SpineOperationFact::Open {
++        summary: "child".to_string(),
++    });
++    history.user("inner user evidence");
++    history.step(SpineOperationFact::Close {
++        memory: "same body".to_string(),
++    });
++    history.step(SpineOperationFact::Next {
++        closed_memory: "same body".to_string(),
++        next_summary: "sibling".to_string(),
++    });
++    history.step(SpineOperationFact::Spawn {
++        tasks: ["left", "right"]
++            .into_iter()
++            .map(|summary| SpawnTask {
++                summary: summary.to_string(),
++                prompt: format!("inspect {summary}"),
++            })
++            .collect(),
++        terminal_results: ["left", "right"]
++            .into_iter()
++            .enumerate()
++            .map(|(ordinal, reference)| SpawnResult {
++                ordinal: u32::try_from(ordinal).expect("task ordinal"),
++                outcome: SpawnOutcome::Completed,
++                memory_body: "same body".to_string(),
++                diagnostic: None,
++                execution_ref: Some(reference.to_string()),
++            })
++            .collect(),
++    });
++    history.step(SpineOperationFact::Close {
++        memory: "same body".to_string(),
++    });
++    let plan = history.runtime.preview_context_plan().expect("plan");
++    let resolved = plan
++        .resolve(&history.runtime.source_snapshot())
++        .expect("resolve");
++    let summaries = resolved
++        .cells
++        .iter()
++        .filter_map(|cell| match &cell.item {
++            ContextItem::MemorySlot(MemorySlot::Summary {
++                owner_node, body, ..
++            }) => Some((owner_node.to_string(), body.as_str())),
++            _ => None,
++        })
++        .collect::<Vec<_>>();
++    assert_eq!(
++        summaries,
++        vec![
++            ("1.1.1".to_string(), "same body"),
++            ("1.1".to_string(), "same body"),
++            ("1.2.1".to_string(), "same body"),
++            ("1.2.2".to_string(), "same body"),
++            ("1.2".to_string(), "same body"),
++        ]
++    );
++    let users = resolved
++        .cells
++        .iter()
++        .filter_map(|cell| match &cell.item {
++            ContextItem::Message { message, .. } if message.role == MessageRole::User => {
++                Some(message.content.as_str())
++            }
++            _ => None,
++        })
++        .collect::<Vec<_>>();
++    assert_eq!(users, vec!["outer user evidence", "inner user evidence"]);
++    let references = resolved
++        .cells
++        .iter()
++        .filter_map(|cell| match &cell.item {
++            ContextItem::MemorySlot(MemorySlot::SpawnEvidence { execution_ref, .. }) => {
++                execution_ref.as_deref()
++            }
++            _ => None,
++        })
++        .collect::<Vec<_>>();
++    assert_eq!(references, vec!["left", "right"]);
++    history.replay();
++}
++
++#[test]
++fn recipe_replay_keeps_namespace_and_rejects_broken_typed_chain() {
++    let mut history = History::new("recipe-parent");
++    history.user("inherited source");
++    history.step(SpineOperationFact::Open {
++        summary: "scope".to_string(),
++    });
++    let inherited = history.runtime.source_snapshot();
++    history
++        .runtime
++        .continue_in_namespace(ThreadNamespace::parse("recipe-fork").expect("fork namespace"))
++        .expect("continue namespace");
++    history.step(SpineOperationFact::Close {
++        memory: "fork memory".to_string(),
++    });
++    let source = history.runtime.source_snapshot();
++    assert_eq!(
++        &source.cells()[..inherited.cells().len()],
++        inherited.cells()
++    );
++    history.replay();
++
++    let first_started = history
++        .inputs
++        .iter()
++        .position(|input| {
++            matches!(
++                input,
++                ReplayInput::Archive(SamplingArchiveRecord::SamplingStarted(_))
++            )
++        })
++        .expect("first start");
++    let broken = history
++        .inputs
++        .iter()
++        .enumerate()
++        .filter(|(index, _)| *index != first_started)
++        .map(|(_, input)| input.clone())
++        .collect::<Vec<_>>();
++    assert!(
++        CanonicalReplay::new(history.thread)
++            .expect("replay")
++            .with_runtime_config(history.config)
++            .expect("config")
++            .prepare(broken)
++            .is_err()
++    );
++}

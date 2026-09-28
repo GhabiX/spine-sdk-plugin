@@ -54,14 +54,13 @@ test("Pi context materialization resolves exact source identity and user anchors
   const context = {
     transactionId: "preview:plan-1",
     contextPlan: {
-      schema: "spine.context.plan.v1",
+      schema: "spine.context.plan.v2",
       thread: "pi-session",
       epoch: 0,
       source_snapshot_digest: "source",
       cells: [
         { type: "source", source_id: SOURCE_ID, labels: [{ UserAnchor: 3 }] },
       ],
-      memory_slots: [],
       plan_digest: "plan-1",
     },
     projection: { nodes: [], cursor: [0], visible_context: [], last_boundary: 0 },
@@ -83,7 +82,7 @@ test("Pi renders only the canonical Spine-owned projection forms", () => {
   const context = {
     transactionId: "commit-1",
     contextPlan: {
-      schema: "spine.context.plan.v1",
+      schema: "spine.context.plan.v2",
       thread: "pi-session",
       epoch: 0,
       source_snapshot_digest: "source",
@@ -103,7 +102,6 @@ test("Pi renders only the canonical Spine-owned projection forms", () => {
           execution_ref: "child-1",
         } } }, 2),
       ],
-      memory_slots: [],
       plan_digest: "plan-1",
     },
     projection: { nodes: [], cursor: [0], visible_context: [], last_boundary: 0 },
@@ -161,7 +159,7 @@ test("Pi materialization applies an entry projection without matching message te
   const messages = materializePiContext({
     transactionId: "preview:plan",
     contextPlan: {
-      schema: "spine.context.plan.v1",
+      schema: "spine.context.plan.v2",
       thread: "pi-session",
       epoch: 0,
       source_snapshot_digest: "source",
@@ -170,7 +168,6 @@ test("Pi materialization applies an entry projection without matching message te
         cell(1, [{ UserAnchor: 5 }]),
         cell(2),
       ],
-      memory_slots: [],
       plan_digest: "plan",
     },
     projection: { nodes: [], cursor: [], visible_context: [], last_boundary: null },
@@ -192,12 +189,11 @@ test("Pi fails closed for missing source identity and unsupported projection", (
   const plan = (cell) => ({
     transactionId: "preview:plan",
     contextPlan: {
-      schema: "spine.context.plan.v1",
+      schema: "spine.context.plan.v2",
       thread: "pi-session",
       epoch: 0,
       source_snapshot_digest: "source",
       cells: [cell],
-      memory_slots: [],
       plan_digest: "plan",
     },
     projection: { nodes: [], cursor: [], visible_context: [], last_boundary: null },

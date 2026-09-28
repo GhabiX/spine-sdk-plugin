@@ -1,9 +1,11 @@
 # Spine SDK Plugin
 
-This directory is the **only** source of the Pi/DSH Spine plugin. Daily Pi
-should `pi install` `packages/plugin` from here. EvoClaw vendor copies must be
-cut from a git commit of this repo, not a second tree. Pi loads `dist/`; rebuild
-after source changes (`npm run build` and `scripts/build-node-wasm.sh`).
+This directory is the source of the **SDK-backed** Pi/DSH Spine plugin. Daily
+Pi should `pi install` `packages/plugin` from here. EvoClaw vendor copies must
+be cut from a git commit of this repo, not a second tree. The separate native
+Pi implementation is outside this package. Pi loads the compiled `dist` entry;
+TypeScript source changes require the SDK, host, then plugin builds described
+[below](#pi-extension). WASM rebuilding is required only for Rust/core changes.
 
 This repository is the portable Spine product boundary for Node agent hosts.
 It packages one Rust semantic kernel behind a narrow WASM ABI, a TypeScript SDK,
@@ -15,6 +17,19 @@ current `spine-core` implementation remains in SpineCodex and is identified by
 `core-source.json`; this repository never carries a copied reducer. The
 [release gate](doc/RELEASE.md) states which SpineTree paths are usable and
 which remain experimental.
+
+## Protocol pairing
+
+The portable interface is `spine-sdk/v2`; its current context recipe is
+`spine.context.plan.v2`. Recipes contain current ordered cells, while complete
+historical memory stays in the semantic tree and typed archive. The recipe no
+longer duplicates all historical memory alongside its visible cells.
+
+Upgrade the TS SDK and packaged WASM together, rebuild dependent hosts, and
+restart existing processes. Mismatched v1/v2 envelopes are rejected. Existing
+Codex/Pi typed session records replay into v2 plans without rewriting the log;
+saved v1 recipe snapshots are not accepted as v2. See the
+[ABI contract](doc/ABI.md#current-plans-and-durable-history).
 
 ## Packages
 
@@ -187,19 +202,56 @@ reconnection stay outside the plugin.
 
 ## Pi extension
 
-`@spinejit/spine-plugin` declares its local Pi load entry in `pi.extensions`
-as `./src/pi/extension.ts`, so Pi loads it through jiti and the host virtual
-module. The package export `@spinejit/spine-plugin/pi/extension` remains the
-compiled `dist` module for tests and direct imports.
+`@spinejit/spine-plugin` declares `./dist/pi/extension.js` in `pi.extensions`.
+The same compiled module is exposed by `@spinejit/spine-plugin/pi/extension`
+and is included by the package's `files` list. Local directory and packed
+installation therefore use the same entry through Pi's loader and host virtual
+module support.
+
+For Pi SDK development, run these commands from this repository's root:
+
+```bash
+npm run build -w @spinejit/spine-sdk
+npm run build -w @spinejit/spine-host
+npm run build -w @spinejit/spine-plugin
+pi install /absolute/path/to/spine-sdk-plugin/packages/plugin
+```
+
+Rebuild after TypeScript changes, then `/reload` or restart Pi and start a new
+session. Install dependencies before building; the plugin depends on the matching
+SDK/host packages and Pi 0.87.1 rather than bundling them. See the
+[package guide](packages/plugin/README.md#pi-sdk-installation-and-updates).
+
 It registers the four canonical tools, has no browsing slash commands, and
 uses `@spinejit/spine-sdk/node` for the packaged WASM runtime.
-Pi reads `packages/plugin/spine.toml` and passes that text to the WASM runtime
-as `configToml`. The file owns Pi's JIT text, node text, and tool descriptions.
-Editing it does not require a WASM rebuild. Hosts that omit `configToml` still
-use the `spine-core` embedded default. Before each agent run, the extension's
+Pi reads `packages/plugin/spine.toml` once per extension activation. The tool
+catalog and default session runtime share that configuration snapshot; tree
+navigation keeps it, while `/new` or reload activates the current disk version.
+The text is passed to WASM as `configToml`. The file owns Pi's JIT text, node
+text, and tool descriptions.
+Editing these config fields does not require a WASM rebuild. Parameter-field
+descriptions, including the shared `close`/`next` memory guidance, come from
+`spine-core/src/tools.rs` and require rebuilding the packaged WASM. Pi's
+incremental-memory policy is expressed in the node prompt and configured
+`close`/`next` tool descriptions; the shared parameter schema is unchanged.
+Hosts that
+omit `configToml` still use the `spine-core` embedded default. Before each agent run, the extension's
 `before_agent_start` hook extends Pi's assembled system prompt through this
 configured runtime. Pi tool names are written in the toml. The extension does not
 rewrite them or insert a second copy of the prompt.
+
+Branch policy groups reading, analysis, and verification for one result. Open a
+direct child when it needs independent work and can return a useful result;
+answer sections and unchanged checks do not by themselves require new branches.
+Root-first-open, direct ownership, completion before close/next, and sampling
+semantics remain in effect. A user reply alone does not complete an obligation.
+
+Runtime preserves user evidence and child memories. Parent memory adds new
+synthesis, changed conclusions, remaining work, and evidence unique to that
+branch, rather than copying child memories. Keep facts that would otherwise
+leave with the branch's raw history. Node IDs can identify visible memory but
+are not a history-retrieval API.
+
 In interactive Pi TUI mode it renders a folded SpineCodex-style pretty tree as an
 `aboveEditor` widget keyed by `spine-tree`, with one blank row below the tree
 to separate it from the input border, refreshed only when the display
@@ -218,12 +270,13 @@ stay inside the UI error boundary. Background publications update the default
 tree while the browser holds its snapshot; releasing the view displays the latest
 tree. This is an in-process extension contract, not a security sandbox.
 
-The context hook is also dirty-tracked. Recovery starts with the context that
-was just published; repeated Pi context hooks therefore return the installed
-projection without running another synchronous WASM preview. A new source
-message, compact replacement, or committed sampling cycle invalidates or
-refreshes that marker before the next publication. This keeps the host event
-ordering unchanged while removing redundant preview work from long sessions.
+Core-plan freshness skips repeated WASM previews when no source or sampling
+state has changed. It does not cache the current Pi message view. Ordinary
+requests and compact summaries synchronously materialize messages from the
+published plan, the relevant branch snapshot, and existing source bindings.
+Host context edits therefore take effect without inventing a source or commit;
+closed scopes still expose only their returned memory. The publication path
+also materializes messages, so this change does not establish a speedup.
 
 Before recording an execution or starting Spawn children, the SDK calls the
 pure `spine-core` validator through the WASM binding. The plugin does not copy
@@ -239,6 +292,25 @@ projection before allowing Pi to append its acknowledgement entry. A native
 compaction entry is accepted during recovery only when paired with the durable
 Spine compact entry and marked `fromHook`; an unpaired or non-hook native
 compaction fails closed.
+
+Compact summary input, tools, preparation, and retained messages share the
+event's branch snapshot. If the branch changes while the summary is pending,
+the extension cancels the uncommitted compact and preserves the new tail.
+Reload shutdown cancels an active operation before disposing the old runtime.
+Offline real-Pi checks cover a pending context request; they do not establish
+safety for every external asynchronous interleaving.
+
+The current Pi entry and `pi-compact-fallback` 0.2.1 share the
+`pi:compaction-owner:v1` activation check. If both are configured, whichever
+loads second is rejected before registering tools or hooks, with a clear
+`Pi compaction plugin conflict` error. Pi can continue with the first plugin;
+experiment launchers must treat loader errors as an invalid configuration.
+Subscriptions belong to the extension runtime and are cleared on reload.
+This requires both updated entries: old fallback 0.2.0 bundles and old Spine
+builds are not covered. Rebuild and reload both entries to use that check; a
+running process retains its loaded extension. Do not stack other compaction
+owners that do not implement this protocol.
+
 Archive `durabilityId` is the persist key `archiveRecordId(record)`:
 `attempt_id.value` on `sampling_started` and `commit_id.value` on
 `sampling_commit`. `record_digest` is not the persist key; recovery accepts it
@@ -318,15 +390,34 @@ and competing context reducers out of the Spine-enabled composition.
 
 ## Development source
 
-The workspace currently uses the sibling SpineCodex checkout through the path
-recorded in `core-source.json`. CI and release automation must resolve that same
-package from the exact recorded revision. A future ownership migration may move
-the canonical crate here only if SpineCodex is changed atomically to depend on
-the new location.
+The workspace uses the sibling SpineCodex checkout through the path recorded in
+`core-source.json`. The current development source is revision
+`cb01f18b0113ada388b0ede69b36c1194513a240` **plus** the versioned
+`provenance/spine-core-cb01f18.patch`. The patch includes the local core changes
+needed for recipe v2, empty node bodies, deterministic prompt composition, and
+their regression tests; the revision alone does not contain those changes.
+
+`developmentSnapshot.files` records every core file and the inherited Cargo
+workspace manifest/toolchain. To reconstruct this development source, check out
+the exact revision in a separate SpineCodex checkout and apply the patch from
+that checkout's root. Do not apply it over an already modified core. Verify with
+`node scripts/verify-core-source.mjs /path/to/reconstructed/SpineCodex`; without
+the argument, the helper also checks that Cargo uses the declared sibling path.
+The helper verifies the complete core inventory, file hashes, and patch hash.
+
+`scripts/build-node-wasm.sh` runs this check before and after its locked Cargo
+build, before replacing the packaged artifact. CI/release must reconstruct the
+same revision plus patch and use the SDK workspace's `Cargo.lock`; a base-only
+checkout is not this build's source. This records a reproducible development
+input, not a published core release. `provenance/node-wasm-build.json` records
+the binding inputs, toolchain, build settings, generated artifact hashes, and
+portable checks for the checked-in WASM. It does not claim bit-for-bit builds
+across other toolchains or directories. A future ownership migration may move
+the canonical crate here only if SpineCodex changes atomically to depend on it.
 
 After generating a Node-targeted `spine_wasm.js` with the exact locked
 `wasm-bindgen-cli` version, verify native/WASM equivalence with:
 
 ```bash
-npm run test:wasm-golden -- /absolute/path/to/spine_wasm.js
+npm run test:wasm-golden -- /absolute/path/to/spine_wasm.cjs
 ```

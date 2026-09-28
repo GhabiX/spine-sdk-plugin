@@ -1,13 +1,13 @@
 {
   "init": {
-    "schema": "spine-sdk/v1",
+    "schema": "spine-sdk/v2",
     "thread": "portable-trace",
     "epoch": 0,
     "features": ["jit"]
   },
   "requests": [
     {
-      "schema": "spine-sdk/v1",
+      "schema": "spine-sdk/v2",
       "request": {
         "type": "observe_sources",
         "characters": [
@@ -16,14 +16,14 @@
       }
     },
     {
-      "schema": "spine-sdk/v1",
+      "schema": "spine-sdk/v2",
       "request": {
         "type": "begin_sampling",
         "prompt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       }
     },
     {
-      "schema": "spine-sdk/v1",
+      "schema": "spine-sdk/v2",
       "request": {
         "type": "observe_sources",
         "characters": [
@@ -32,7 +32,7 @@
       }
     },
     {
-      "schema": "spine-sdk/v1",
+      "schema": "spine-sdk/v2",
       "request": {
         "type": "prepare_finish",
         "terminal": "completed",
@@ -47,6 +47,23 @@
     "transaction_id": "portable-trace-commit-0",
     "commit_id": { "thread": "portable-trace", "value": "portable-trace-commit-0" },
     "cursor": [1],
-    "last_boundary": 1
+    "last_boundary": 1,
+    "context_plan": {
+      "schema": "spine.context.plan.v2",
+      "thread": "portable-trace",
+      "epoch": 0,
+      "cells": [
+        {
+          "type": "source",
+          "source_id": { "thread": "portable-trace", "epoch": 0, "ordinal": 0 },
+          "labels": [{ "UserAnchor": 1 }]
+        },
+        {
+          "type": "source",
+          "source_id": { "thread": "portable-trace", "epoch": 0, "ordinal": 1 },
+          "labels": []
+        }
+      ]
+    }
   }
 }

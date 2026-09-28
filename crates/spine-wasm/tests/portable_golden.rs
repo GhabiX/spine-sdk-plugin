@@ -25,7 +25,7 @@ fn native_runtime_matches_the_portable_golden_trace() {
         .as_str()
         .expect("prepared transaction must have an id");
     let install = json!({
-        "schema": "spine-sdk/v1",
+        "schema": "spine-sdk/v2",
         "request": {
             "type": "install_prepared",
             "transaction_id": transaction_id,
@@ -68,10 +68,8 @@ fn native_runtime_matches_the_portable_golden_trace() {
         outputs[4]["result"]["transaction_id"],
         expected["transaction_id"]
     );
-    assert_eq!(
-        outputs[4]["result"]["context_plan"],
-        outputs[3]["result"]["context_plan"]
-    );
+    assert_eq!(outputs[3]["result"]["context_plan"], expected["context_plan"]);
+    assert_eq!(outputs[4]["result"]["context_plan"], expected["context_plan"]);
     assert_eq!(
         outputs[4]["result"]["projection"],
         outputs[3]["result"]["projection"]

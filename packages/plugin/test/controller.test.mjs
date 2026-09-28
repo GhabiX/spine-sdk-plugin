@@ -40,12 +40,11 @@ const COMMIT = {
   },
 };
 const PLAN = {
-  schema: "spine.context.plan.v1",
+  schema: "spine.context.plan.v2",
   thread: "thread-1",
   epoch: 0,
   source_snapshot_digest: "source",
   cells: [],
-  memory_slots: [],
   plan_digest: "plan",
 };
 const PROJECTION = { nodes: [], cursor: [], visible_context: [], last_boundary: null };

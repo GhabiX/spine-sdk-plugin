@@ -16,7 +16,7 @@ import {
   SpineTreeMailboxError,
 } from "../dist/index.js";
 
-const snapshot = { branches: {}, agents: {} };
+const snapshot = { branches: {}, schema: "spinetree.snapshot/v2" };
 const binding = { agentId: "agent", sessionId: "session", branch: "root", status: "running" };
 const input = message => ({ to: "agent", from: null, message });
 const ids = receipts => receipts.map(receipt => receipt.id);

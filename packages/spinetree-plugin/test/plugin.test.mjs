@@ -90,11 +90,7 @@ test("reads one fixed HEAD snapshot with inheritance, children, and binding", as
         status: "capped",
       },
     },
-    agents: {
-      a_root: { id: "a_root", working: "child", live: ["root", "child"], status: "running" },
-      a_child: { id: "a_child", working: "leaf", live: ["leaf"], status: "running" },
-      a_ended: { id: "a_ended", working: "child", live: ["child"], status: "ended" },
-    },
+    schema: "spinetree.snapshot/v2",
     registry: {
       current: { agentId: "current", sessionId: "session-child", branch: "child", scope: "scope-2", status: "paused" },
     },
@@ -157,7 +153,7 @@ test("reports unknown branches as a typed read error", async () => {
   host.register(createSpineTreePlugin({
     store: {
       head: () => "head-1",
-      readSnapshot: () => ({ branches: {}, agents: {} }),
+      readSnapshot: () => ({ branches: {}, schema: "spinetree.snapshot/v2" }),
     },
   }));
   await host.activateAll();
@@ -196,7 +192,7 @@ test("changes an immutable memory snapshot with a strict HEAD CAS", async () => 
         status: "capped",
       },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const store = new MemorySpineTreeStore(snapshot);
   const initialHead = store.head();
@@ -244,7 +240,7 @@ test("a store commit that does not change the branch does not invalidate its rev
       root: { id: "root", parent: null, goal: "project", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "capped" },
       child: { id: "child", parent: "root", goal: "old", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "capped" },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const store = new MemorySpineTreeStore(snapshot);
   const host = new SpinePluginHost();
@@ -288,7 +284,7 @@ test("rejects an invalid change batch atomically and keeps read-only stores cont
         status: "capped",
       },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const store = new MemorySpineTreeStore(snapshot);
   const head = store.head();
@@ -328,7 +324,7 @@ test("enforces move cycles, root/live guards, and archive live-work guards", () 
       descendant: { id: "descendant", parent: "capped", goal: "descendant", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "capped" },
       live: { id: "live", parent: "root", goal: "live", constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "live" },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const store = new MemorySpineTreeStore(snapshot);
   const head = store.head();
@@ -377,7 +373,7 @@ test("persists immutable snapshots in an explicit `.spinetree` Git root with CAS
         status: "capped",
       },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const root = await mkdtemp(join(tmpdir(), "spinetree-git-"));
   const store = GitSpineTreeStore.initialize(root, snapshot);
@@ -429,7 +425,7 @@ test("separate Git store processes enforce one expected-HEAD winner", async () =
         status: "capped",
       },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const root = await mkdtemp(join(tmpdir(), "spinetree-git-race-"));
   const first = GitSpineTreeStore.initialize(root, snapshot);
@@ -477,7 +473,7 @@ test("Git snapshot validation and failed batches do not move HEAD", async () => 
         status: "capped",
       },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const root = await mkdtemp(join(tmpdir(), "spinetree-git-invalid-"));
   const store = GitSpineTreeStore.initialize(root, snapshot);
@@ -505,7 +501,7 @@ test("Git registry survives reload and preserves concurrent registrations", asyn
         memory: null, memoryVersion: 0, memorySource: null, status: "capped",
       },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const root = await mkdtemp(join(tmpdir(), "spinetree-git-registry-"));
   const store = GitSpineTreeStore.initialize(root, snapshot);
@@ -543,7 +539,7 @@ test("Git mailbox persists receipts, leases and idempotency across reload", asyn
         memory: null, memoryVersion: 0, memorySource: null, status: "capped",
       },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const root = await mkdtemp(join(tmpdir(), "spinetree-git-mailbox-"));
   const store = GitSpineTreeStore.initialize(root, snapshot);
@@ -574,7 +570,7 @@ test("Git mailbox reclaims an expired lease with a new lease ID", async () => {
         memory: null, memoryVersion: 0, memorySource: null, status: "capped",
       },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const root = await mkdtemp(join(tmpdir(), "spinetree-git-mailbox-expired-"));
   const store = GitSpineTreeStore.initialize(root, snapshot);
@@ -608,7 +604,7 @@ test("wires Git registry and mailbox persistence through the SpineTree send tool
         memory: null, memoryVersion: 0, memorySource: null, status: "capped",
       },
     },
-    agents: {},
+    schema: "spinetree.snapshot/v2",
   };
   const root = await mkdtemp(join(tmpdir(), "spinetree-git-send-"));
   const store = GitSpineTreeStore.initialize(root, snapshot);

@@ -18,6 +18,12 @@ const SOURCE = {
   cells: [],
 };
 
+test("durable source reconciliation rejects a discontinuous tail", async () => {
+  const { lifecycle } = harness();
+  await assert.rejects(lifecycle.observePersistedSources([{ boundary: 1,
+    message: { role: "user", content: "gap", timestamp: 1 } }]), /discontinuous/);
+});
+
 function harness(lifecycleOptions = {}) {
   const log = [];
   const adapter = {

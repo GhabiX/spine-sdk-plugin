@@ -22,7 +22,7 @@ outputs.push(
   JSON.parse(
     runtime.dispatch(
       JSON.stringify({
-        schema: "spine-sdk/v1",
+        schema: "spine-sdk/v2",
         request: { type: "install_prepared", transaction_id: transactionId },
       }),
     ),
@@ -38,7 +38,8 @@ assert.deepEqual(outputs[3].result.record.record.commit_id, expected.commit_id);
 assert.deepEqual(outputs[3].result.projection.cursor, expected.cursor);
 assert.equal(outputs[3].result.projection.last_boundary, expected.last_boundary);
 assert.equal(outputs[4].result.transaction_id, expected.transaction_id);
-assert.deepEqual(outputs[4].result.context_plan, outputs[3].result.context_plan);
+assert.deepEqual(outputs[3].result.context_plan, expected.context_plan);
+assert.deepEqual(outputs[4].result.context_plan, expected.context_plan);
 assert.deepEqual(outputs[4].result.projection, outputs[3].result.projection);
 
 console.log("native/WASM golden trace: ok");

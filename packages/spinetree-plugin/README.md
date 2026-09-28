@@ -15,10 +15,13 @@ Use `result.binding.agentId` as `spinetree_send.to`. AgentId and PiSessionId are
 different identities. The lookup reflects the captured HEAD; send still checks
 the recipient's current registry state.
 
-This replaces v1's `{ agent, working, live }` binding. The legacy snapshot
-`agents` map remains stored, but is no longer used to infer a binding. Existing
-snapshots need explicit registry entries with actual Pi session identities to
-expose current bindings. Read does not migrate or modify state.
+The project store accepts only snapshots with `schema: "spinetree.snapshot/v2"`
+and a `branches` map. Any own `agents` field, including an empty map, is rejected.
+Memory and Git stores apply the same validation; invalid initialization and
+commits cannot advance state. Git initialization validates before creating its
+directory. Registry, mailbox, Scope imports and extra application metadata are
+preserved. This package starts new trees; it does not migrate old snapshots.
+Keep historical trees with their original package. Read does not modify state.
 
 Use the same snapshot store for tree reads and the persistent registry/mailbox
 adapters. `GitSpineTreeAgentRegistry` also accepts `MemorySpineTreeStore` for
@@ -112,16 +115,39 @@ does not execute operations, reduce memory or register an additional model tool.
 
 Select `{ nodeId, parent }` to allocate a new ProjectBranch UUID under an existing
 parent, or `{ nodeId, branch }` to bind an existing project branch. Only Task scopes
-can be selected. Unselected scopes stay local. On each subsequent commit, pass an
+can be selected. Existing branches must be unbound and live; replacing a prior
+result requires typed reexecution. Selected Spawn terminals must use their
+reserved branch and verified handoff, including the ended child lease check.
+Unselected scopes stay local. On each subsequent commit, pass an
 empty selection to refresh known mappings, or add explicit selections for new work.
 The Agent must exist in the same snapshot registry and belong to this Pi session.
 
 Callers may instead pass `alignment: "one-to-one"` and omit `selections`. The
-importer maps canonical Task nodes by depth, reuses the Agent home branch for the
-first unmapped root Task, and creates nested ProjectBranches under their mapped
-canonical parent. The result contains generated UUIDs. Replaying the same
+importer maps canonical Task nodes by depth. An ordinary first Open creates a
+child of the immutable execution assignment; nested Tasks create descendants.
+Close preserves that identity and its local resources. Home reuse is limited to
+the typed Spawn assignment floor and the single inline result of a reexecution.
+Spawn terminal handoffs retain their reserved branch and parent. The result
+contains generated UUIDs. Replaying the same
 alignment receipt is write-free and returns the persisted UUIDs; generated IDs
 are not part of the input fingerprint.
+
+Import watermarks retain cumulative Scope mappings separately from the current
+receipt's selections. Omitting an old terminal Scope does not forget its mapping;
+selecting it after reexecution cannot overwrite a newer memory version. New
+receipts from a registered WorkingBinding require its complete matching lease.
+A reexecution may Spawn at RootEpoch before its inline result, but result-level
+Next or a second inline result rejects the project import without partial writes.
+Canonical commits remain immutable if project reconciliation is required.
+
+When reexecution readiness fails, rollback checks the original ownership in both
+the Agent registry and the branch's reexecution record inside the snapshot CAS.
+A replaced lease, operation or advanced cursor is not rolled back; the newer
+snapshot is preserved and the stale `release` callback is not called. Normal
+failure marks the owned execution ended/failed before calling `release` with its
+original binding. The adapter must release only that allocation. If release also
+fails, both the readiness and release errors are retained in an `AggregateError`;
+external session cleanup remains the host's responsibility.
 
 Each branch stores `scopeBinding: { agentId, sessionId, thread, epoch, nodeId }`.
 Live/Opened scopes keep the project branch live. Closed/Compacted scopes cap it
@@ -139,8 +165,14 @@ ownership. A capped Scope mapping stops reserving the branch, but an Agent whose
 immutable home is that branch still reserves it until explicitly ended. Capping
 does not change that Agent lifecycle rule.
 
-All selected branches and their import watermark publish in one expected-head
-CAS commit. Stale HEAD retries re-read the snapshot (at most eight attempts by
+The receipt's WorkingBinding carries the target canonical epoch and cursor.
+The importer validates its immutable assignment and active lease, then updates
+that cursor, selected branches and import watermark in one expected-head CAS.
+Callers must not prewrite the cursor. Cursor-only registry updates remain
+available to hosts with Scope import disabled. The result's optional `binding`
+is the registry value at the returned HEAD; a replay returns the current value,
+including a paused or ended status, without restoring the receipt's old cursor.
+Stale HEAD retries re-read the snapshot (at most eight attempts by
 default). The same latest receipt and selection replay without a write and return
 the same allocated IDs, regardless of object key order. A changed replay is rejected; within an epoch subsequent
 imports must follow the canonical commit chain. Retain and retry failed receipts

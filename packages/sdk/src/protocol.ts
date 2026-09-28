@@ -1,4 +1,4 @@
-export const SPINE_SDK_SCHEMA = "spine-sdk/v1" as const;
+export const SPINE_SDK_SCHEMA = "spine-sdk/v2" as const;
 export const SPINE_SOURCE_SNAPSHOT_SCHEMA = "spine.source.snapshot.v1" as const;
 
 export type SpineSdkSchema = typeof SPINE_SDK_SCHEMA;
@@ -188,12 +188,11 @@ export type ContextPlanCell =
     };
 
 export interface ContextPlanRecipe {
-  schema: "spine.context.plan.v1";
+  schema: "spine.context.plan.v2";
   thread: ThreadNamespace;
   epoch: SafeInteger;
   source_snapshot_digest?: Digest;
   cells: ContextPlanCell[];
-  memory_slots: MemorySlot[];
   plan_digest?: Digest;
 }
 

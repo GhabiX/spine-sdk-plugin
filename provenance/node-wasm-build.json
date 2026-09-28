@@ -1,0 +1,85 @@
+{
+  "schema": "spine-node-wasm-development-build/v1",
+  "builtAtUtc": "2026-09-28T04:59:33.217679+00:00",
+  "coreSource": "core-source.json",
+  "coreSourceSha256": "2ee191f7c37f75197c80d03929eb513bd3b43a624157527f503e83a76a129205",
+  "sourceReconstruction": "revision-plus-patch reconstructed and matched all 48 source files before build",
+  "build": {
+    "command": [
+      "sh",
+      "scripts/build-node-wasm.sh"
+    ],
+    "environment": {
+      "CARGO_TARGET_DIR": "/data/swe/FramePilot/cachetree/.builder-cache/local-codex-target",
+      "CARGO_BUILD_JOBS": "32",
+      "CARGO_INCREMENTAL": "1",
+      "CARGO_PROFILE_RELEASE_LTO": "off",
+      "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": "64",
+      "WASM_BINDGEN": "/home/ghabi/.cargo/bin/wasm-bindgen",
+      "RUST_MIN_STACK": "8388608"
+    },
+    "exitCode": 0,
+    "elapsedSeconds": 34.132137298583984
+  },
+  "toolchain": {
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "wasmBindgen": "wasm-bindgen 0.2.127",
+    "node": "v22.23.2"
+  },
+  "cargoConfigHashes": {},
+  "additionalInheritedBuildEnvironment": {},
+  "inputs": {
+    "Cargo.toml": "7b9ce2919615789f52f9eccc08908004adadd9c98c7042d7e2398ffeff2bb64a",
+    "Cargo.lock": "6e53101fa51580f80109edbf3ec5bc4eb54fabd974c9eed5e9e6df34b68919c6",
+    "core-source.json": "2ee191f7c37f75197c80d03929eb513bd3b43a624157527f503e83a76a129205",
+    "scripts/build-node-wasm.sh": "2db7c3361be2014f80e4d526e65a6428caa700dcaffd4928a42d6bf1391f191e",
+    "scripts/verify-core-source.mjs": "324e18de74616939d02f5d9938d5f001f59a96b2cc317682bed3d836b5387a42",
+    "provenance/spine-core-cb01f18.patch": "79ae41876c11bcd6fe994d64b6a40dfa44ac065feaa34cf487214a4ec702842c",
+    "crates/spine-wasm/src/dto.rs": "1e83609044aab4431ab6b227c1b6313ccf67111de5e5e88db7caf02725bdc477",
+    "crates/spine-wasm/src/lib.rs": "13ceacbeb3d263688e3a495ea22db67c339c6da64897f3459d7d548b28dff3ff",
+    "crates/spine-wasm/src/runtime.rs": "7d425149cff02dcd3da52a643ab343b5c2a7a7af9bc3b9bb2c3b97e507b70971",
+    "crates/spine-wasm/src/validation.rs": "77151918252519f8730141148f3833824edcb5c72a6ae2b2ef729c49f96ffb02",
+    "crates/spine-wasm/tests/portable_golden.rs": "59e521bb3ce2e9de98a2c5585b00b3e917b9d9f568f10d70927ff2045783fb43",
+    "crates/spine-wasm/tests/portable_protocol_tests.rs": "24b690e0cbc69aa7aa1788c12b1ebc6aa4ad452a6bdfd147f7a9f95d6ddb65ea",
+    "crates/spine-wasm/tests/portable_runtime.rs": "1d093359a160b143666d57819de4c85130cf384d2e8e447854c2aff82ca39295",
+    "crates/spine-wasm/Cargo.toml": "8d1089992658c373b8708904c2203a97184f91c80303aaa69ded65f556ec8bfc"
+  },
+  "artifacts": {
+    "packages/sdk/wasm/node/spine_wasm.cjs": {
+      "sha256": "1165fa5c32ac87d6f3d58ece8c647d94f348bdea2d67bfb107f2ac8c9070eaad",
+      "bytes": 8294,
+      "beforeSha256": "1165fa5c32ac87d6f3d58ece8c647d94f348bdea2d67bfb107f2ac8c9070eaad",
+      "sameAsBefore": true
+    },
+    "packages/sdk/wasm/node/spine_wasm.d.ts": {
+      "sha256": "36302cf124acbb8008f9ff94cd07df102148c4e219c54ab00361d99f86addace",
+      "bytes": 1004,
+      "beforeSha256": "36302cf124acbb8008f9ff94cd07df102148c4e219c54ab00361d99f86addace",
+      "sameAsBefore": true
+    },
+    "packages/sdk/wasm/node/spine_wasm_bg.wasm": {
+      "sha256": "71e1f4adfd43a66dbaec28116a89b1028607b04ceacb099cdfe376694b8e3acf",
+      "bytes": 1367449,
+      "beforeSha256": "0b62b19f639464072c484613bddc4b41d61ec659ac401e3810eb5bf5c35f3dc5",
+      "sameAsBefore": false
+    },
+    "packages/sdk/wasm/node/spine_wasm_bg.wasm.d.ts": {
+      "sha256": "194c07e0f7f72fa44849dabeab6b8dc77c9ad1f290784b20adcbc8b11077f843",
+      "bytes": 1099,
+      "beforeSha256": "194c07e0f7f72fa44849dabeab6b8dc77c9ad1f290784b20adcbc8b11077f843",
+      "sameAsBefore": true
+    }
+  },
+  "validation": {
+    "nativePortableTests": 13,
+    "packagedSdkTests": 8,
+    "nativeWasmGolden": "passed",
+    "emptyNodeConfiguredRuntime": "passed"
+  },
+  "limits": [
+    "Build used the declared sibling source path after hash verification; the isolated reconstruction was compared byte-for-byte, not separately compiled.",
+    "Bit-for-bit reproducibility across directories/toolchains was not tested.",
+    "Full Codex CLI integration gate is outside this portable SDK provenance check."
+  ]
+}
