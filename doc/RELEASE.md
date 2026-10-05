@@ -72,6 +72,17 @@ cd scaffold/spine-sdk-plugin && npm test
 SDK 6, Host 18, canonical 147, SpineTree 68, navigation 18. **257 passed / 0
 failed.**
 
+The current public-package preparation commit `f33d0a2` reran the suite with
+the current sources: SDK 8, Host 18, canonical plugin 175, SpineTree 161, and
+navigation 18; **380 passed / 0 failed**. The three packages also pass
+`npm publish --dry-run --access public` and the core-source verification.
+
+The source repository is
+[`GhabiX/spine-sdk-plugin`](https://github.com/GhabiX/spine-sdk-plugin). The
+manual `.github/workflows/publish.yml` workflow publishes SDK, host, and Pi
+plugin in dependency order. Configure npm Trusted Publishing separately for
+each package before dispatching it.
+
 Integration evidence is in `scaffold/project-tree-poc`, not in this package:
 
 | Check | Commit | Result |

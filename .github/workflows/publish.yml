@@ -1,0 +1,43 @@
+name: Publish npm packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Use npm with Trusted Publishing support
+        run: npm install --global npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and test all packages
+        run: npm test
+
+      - name: Publish SDK
+        working-directory: packages/sdk
+        run: npm publish --access public
+
+      - name: Publish host
+        working-directory: packages/host
+        run: npm publish --access public
+
+      - name: Publish Pi plugin
+        working-directory: packages/plugin
+        run: npm publish --access public

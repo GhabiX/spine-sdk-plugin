@@ -7,6 +7,20 @@ Pi implementation is outside this package. Pi loads the compiled `dist` entry;
 TypeScript source changes require the SDK, host, then plugin builds described
 [below](#pi-extension). WASM rebuilding is required only for Rust/core changes.
 
+## Published Pi installation
+
+The public package is `@spinejit/spine-plugin`. Users install one package; npm
+resolves the matching SDK and host dependencies:
+
+```bash
+pi install npm:@spinejit/spine-plugin
+```
+
+The source repository is
+[`GhabiX/spine-sdk-plugin`](https://github.com/GhabiX/spine-sdk-plugin). Release
+publishing is manual through the `Publish npm packages` workflow after the npm
+Trusted Publisher entries are configured for the three packages.
+
 This repository is the portable Spine product boundary for Node agent hosts.
 It packages one Rust semantic kernel behind a narrow WASM ABI, a TypeScript SDK,
 one shared transaction controller, and explicit Pi and DeepSeek Harness plugin
