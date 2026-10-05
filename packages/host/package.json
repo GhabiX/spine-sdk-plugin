@@ -1,8 +1,19 @@
 {
   "name": "@spinejit/spine-host",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "license": "Apache-2.0",
+  "author": "GhabiX",
+  "description": "Minimal host contract for SpineJIT plugins and Pi session adapters.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GhabiX/spine-sdk-plugin.git",
+    "directory": "packages/host"
+  },
+  "bugs": {
+    "url": "https://github.com/GhabiX/spine-sdk-plugin/issues"
+  },
+  "homepage": "https://github.com/GhabiX/spine-sdk-plugin#readme",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,8 +25,12 @@
     }
   },
   "files": [
+    "README.md",
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.19.0"
   },

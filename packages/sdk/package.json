@@ -1,8 +1,19 @@
 {
   "name": "@spinejit/spine-sdk",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "license": "Apache-2.0",
+  "author": "GhabiX",
+  "description": "Portable SpineJIT protocol and Node WASM runtime.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GhabiX/spine-sdk-plugin.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/GhabiX/spine-sdk-plugin/issues"
+  },
+  "homepage": "https://github.com/GhabiX/spine-sdk-plugin#readme",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,9 +25,13 @@
     }
   },
   "files": [
+    "README.md",
     "dist",
     "wasm"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.19.0"
   },

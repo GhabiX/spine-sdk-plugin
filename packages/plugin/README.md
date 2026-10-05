@@ -35,6 +35,13 @@ npm run build -w @spinejit/spine-plugin
 pi install /absolute/path/to/spine-sdk-plugin/packages/plugin
 ```
 
+After the public packages are released, users install only the Pi package; npm
+resolves the matching SDK and host dependencies automatically:
+
+```bash
+pi install npm:@spinejit/spine-plugin
+```
+
 Local directory installation and packed installation use the same compiled
 entry. After source changes, rebuild these packages, then `/reload` or restart
 Pi and start a new session. A `spine.toml` wording change needs extension

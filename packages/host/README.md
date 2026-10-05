@@ -37,3 +37,8 @@ does not roll back the owner commit; the Host reports the committed receipt so
 the caller can persist it in an outbox and perform retry/reconciliation. The
 Host does not provide durable cross-store storage or exactly-once execution,
 and it never creates a second canonical Spine reducer.
+
+## Package installation
+
+This package is installed automatically by `@spinejit/spine-plugin`; users do
+not need to install it separately.
