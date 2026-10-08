@@ -168,6 +168,14 @@ Deprecation preserves old installations and provides a migration warning.
 Only apply it after the new package can be installed. The repository name stays
 `spine-sdk-plugin` because it also contains the SDK and host.
 
+For interactive releases, use a current npm CLI (at least 11.15 for staged
+publishing) and `--browser=false` on headless hosts. Complete npm's web 2FA
+challenge through its displayed link. If the registry exposes only a
+`0.0.0-stage` placeholder, check `npm stage list @spinejit/pi-spinejit` and the
+staged version before proceeding. A successful CLI exit alone is not a release
+gate: confirm the public version and tarball integrity, then run a normal
+registry install and `pi install` before deprecating an old name.
+
 Verify npm metadata, clean installation, the direct Pi detail page, and Pi
 catalog search separately. A working detail page does not prove catalog search
 inclusion. The `pi-package` keyword and `pi.extensions` are present; discovery

@@ -1,0 +1,59 @@
+{
+  "implementation_commit": "55a9e9f",
+  "package": "@spinejit/pi-spinejit",
+  "version": "0.1.0",
+  "tests": {
+    "sdk": 8,
+    "host": 18,
+    "plugin": 175,
+    "spinetree": 161,
+    "navigation": 18,
+    "total": 380,
+    "failed": 0
+  },
+  "core_source_files": 48,
+  "tarball": {
+    "shasum": "1c5a0277d45a0989c90ffd3b478cc6761c0748ae",
+    "integrity": "sha512-9nWfyalQjKfACyBjaFi2HuwZmOrhbkyYpbxNsEtY+W1r4Sbi/Pq2bDsNWZU/guzeVPtxkvrc0Q5L5zIVtJ/kUQ==",
+    "size": 102071,
+    "unpackedSize": 491806
+  },
+  "registry_integrity_matches": true,
+  "consumer": {
+    "package": "@spinejit/pi-spinejit",
+    "version": "0.1.0",
+    "manifestId": "@spinejit/pi-spinejit",
+    "toolNames": [
+      "spine_open",
+      "spine_close",
+      "spine_next",
+      "spine_spawn"
+    ],
+    "exports": [
+      "./pi/tree-view",
+      ".",
+      "./pi",
+      "./pi/extension",
+      "./pi/tree-style",
+      "./deepseek-harness",
+      "./deepseek-harness/extension"
+    ],
+    "errors": []
+  },
+  "pi_cli_install": "passed",
+  "pi_cli_list": "npm:@spinejit/pi-spinejit",
+  "deprecation": "waiting for npm web 2FA",
+  "catalog": "no matches observed; detail endpoint returned 404 at last check",
+  "catalog_checks": [
+    {
+      "label": "detail",
+      "error": "HTTP Error 404: Not Found"
+    },
+    {
+      "label": "catalog",
+      "status": 200,
+      "new_name_present": false,
+      "no_matches": true
+    }
+  ]
+}

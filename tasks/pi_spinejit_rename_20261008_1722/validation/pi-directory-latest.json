@@ -1,0 +1,12 @@
+[
+  {
+    "label": "detail",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "label": "catalog",
+    "status": 200,
+    "new_name_present": false,
+    "no_matches": true
+  }
+]
