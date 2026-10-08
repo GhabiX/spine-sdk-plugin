@@ -22,3 +22,11 @@
 - 旧包弃用命令已提交到 npm 2FA 验证流程，等待独立身份验证；不删除/下架旧版本。
 
 - 当前 pending 项仅 npm 旧包弃用的 web 2FA；发布进程在等待。目录详情/搜索结果见 validation/pi-directory-latest.json。执行树 root 标记 blocked，完成账号验证后应先恢复并检查 session/registry，避免重复发布新包。
+
+## 迁移完成
+
+新链接验证完成，npm deprecate 退出码 0。旧包 0.1.0 的版本 endpoint 和完整 registry metadata 均已返回新包迁移提示。新包、安装验证、README、源码 import/注册身份、发布 workflow、仓库描述/topic 已全部完成。
+
+最后 Pi 目录检查：搜索仍无匹配，详情为 404。未声称已收录，未为目录索引问题重发版本或向上游发送消息。执行树 root=done 表示包名迁移和发布验证完成；目录状态按实际记录。
+
+本任务移至 archive/pi_spinejit_rename_20261008_1722。详细运行日志和 tarball 保留本地；提交精简验证摘要、验证脚本、在线回执和执行记录。

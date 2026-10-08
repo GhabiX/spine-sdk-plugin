@@ -190,3 +190,11 @@ Pi 0.87.1 loaded one extension with zero errors and all four Spine tools.
 All seven exported subpaths imported successfully. Tarball integrity and
 compiled entry inclusion were checked before publishing. These are package and
 loader checks, not a new live-model evaluation or Pi 1.x compatibility claim.
+
+Migration completed on 2026-10-08: `@spinejit/pi-spinejit@0.1.0` is public;
+registry installation, Pi installation/listing, and extension loading passed.
+The registry integrity matches the tested tarball. `@spinejit/spine-plugin@0.1.0`
+is deprecated with instructions to install the new name; its version remains
+available. Pi catalog search still had no match at the final check, so catalog
+inclusion is not claimed. The release record is in
+[`archive/pi_spinejit_rename_20261008_1722`](../archive/pi_spinejit_rename_20261008_1722/worklog.md).

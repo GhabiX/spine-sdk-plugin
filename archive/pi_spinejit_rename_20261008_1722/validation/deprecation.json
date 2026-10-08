@@ -1,0 +1,5 @@
+{
+  "name": "@spinejit/spine-plugin",
+  "version": "0.1.0",
+  "deprecated": "Renamed to @spinejit/pi-spinejit. Install with: pi install npm:@spinejit/pi-spinejit. Remove the old package and restart Pi; do not load both."
+}

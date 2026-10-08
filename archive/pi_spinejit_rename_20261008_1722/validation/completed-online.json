@@ -1,0 +1,19 @@
+[
+  {
+    "label": "registry-old",
+    "status": 200,
+    "name": "@spinejit/spine-plugin",
+    "version": "0.1.0",
+    "deprecated": "Renamed to @spinejit/pi-spinejit. Install with: pi install npm:@spinejit/pi-spinejit. Remove the old package and restart Pi; do not load both."
+  },
+  {
+    "label": "detail",
+    "error": "HTTP Error 404: Not Found"
+  },
+  {
+    "label": "catalog",
+    "status": 200,
+    "new_name_present": false,
+    "no_matches": true
+  }
+]

@@ -1,9 +1,9 @@
 task: pi_spinejit_rename
-updated_at: 2026-10-08T17:42:20.776979+08:00
+updated_at: 2026-10-08T18:02:49.386190+08:00
 active: root
 nodes:
   root:
-    status: blocked
+    status: done
     path: nodes/root.md
 resume:
   read: [tree.yml, nodes/root.md, git status --short, git diff --stat]

@@ -42,8 +42,8 @@
   },
   "pi_cli_install": "passed",
   "pi_cli_list": "npm:@spinejit/pi-spinejit",
-  "deprecation": "waiting for npm web 2FA",
-  "catalog": "no matches observed; detail endpoint returned 404 at last check",
+  "deprecation": "verified in public registry",
+  "catalog": "Not yet discoverable: search has no matches; detail returned 404 at final check",
   "catalog_checks": [
     {
       "label": "detail",
@@ -55,5 +55,6 @@
       "new_name_present": false,
       "no_matches": true
     }
-  ]
+  ],
+  "deprecation_message": "Renamed to @spinejit/pi-spinejit. Install with: pi install npm:@spinejit/pi-spinejit. Remove the old package and restart Pi; do not load both."
 }
