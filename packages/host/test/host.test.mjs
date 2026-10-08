@@ -8,7 +8,7 @@ import {
 
 const canonicalManifest = {
   schema: "spine-host/v1",
-  id: "@spinejit/spine-plugin",
+  id: "@spinejit/pi-spinejit",
   version: "0.1.0",
   owns: ["spine.canonical"],
   toolNamespace: "spine",
@@ -19,7 +19,7 @@ const projectManifest = {
   schema: "spine-host/v1",
   id: "@spinetree/plugin",
   version: "0.1.0",
-  requires: ["@spinejit/spine-plugin"],
+  requires: ["@spinejit/pi-spinejit"],
   owns: ["spinetree.project-state"],
   toolNamespace: "spinetree",
   commandNamespace: "spinetree",
@@ -63,7 +63,7 @@ test("loads canonical and SpineTree plugins in dependency order", async () => {
   host.register(projectPlugin());
   host.register(canonicalPlugin());
 
-  assert.deepEqual(host.listPlugins(), ["@spinetree/plugin", "@spinejit/spine-plugin"]);
+  assert.deepEqual(host.listPlugins(), ["@spinetree/plugin", "@spinejit/pi-spinejit"]);
   await host.activateAll();
 
   assert.deepEqual(host.listTools(), [
@@ -109,7 +109,7 @@ test("isolates tool and storage namespaces between plugins", async () => {
     manifest: {
       ...projectManifest,
       id: "@example/ordinary-plugin",
-      requires: ["@spinejit/spine-plugin"],
+      requires: ["@spinejit/pi-spinejit"],
       owns: [],
       toolNamespace: "example",
       storageNamespace: "example",

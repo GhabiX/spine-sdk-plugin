@@ -19,7 +19,7 @@ async function fixture(kind, t) {
   for (const agent of ["a", "b"]) {
     await registry.register({ agentId: agent, sessionId: `pi-${agent}`, branch: agent, status: "running" });
     const host = new SpinePluginHost({ sessions: { async request() { assert.fail("send must not dispatch"); } } });
-    host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0" }, activate() {} });
+    host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/pi-spinejit", version: "0.1.0" }, activate() {} });
     host.register(createSpineTreePlugin({ registry, mailbox }));
     await host.activateAll();
     hosts[agent] = host;

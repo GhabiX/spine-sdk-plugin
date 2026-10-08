@@ -10,7 +10,7 @@ import { createSpineTreePlugin, dispatchSpineTreeMailbox, MemoryAgentRegistry, M
 const binding = id => ({ agentId: id, sessionId: `session-${id}`, branch: id, status: "running",
   bindingId: `binding-${id}`, leaseId: `working-${id}`, operationId: id, epoch: 0, scopeCursor: [0] });
 const pin = ({ agentId, sessionId, bindingId, leaseId }) => ({ agentId, sessionId, bindingId, leaseId });
-const canonical = { manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0" }, activate() {} };
+const canonical = { manifest: { schema: "spine-host/v1", id: "@spinejit/pi-spinejit", version: "0.1.0" }, activate() {} };
 async function fixture(t, kind) {
   const store = kind === "git" ? GitSpineTreeStore.initialize(await mkdtemp(join(tmpdir(), "mailbox-domain-")), { branches: {}, schema: "spinetree.snapshot/v2" }) : undefined;
   const registry = store ? new GitSpineTreeAgentRegistry(store) : new MemoryAgentRegistry();

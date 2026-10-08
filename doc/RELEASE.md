@@ -7,7 +7,7 @@ every SpineTree path is production-ready.
 
 One state has one owner.
 
-- `@spinejit/spine-plugin` owns canonical Spine scope transitions, sampling,
+- `@spinejit/pi-spinejit` owns canonical Spine scope transitions, sampling,
   projection, compaction, recovery, and Spawn.
 - `@spinejit/spine-host` owns registration, dependency order, namespaces,
   private storage, lifecycle, and session requests. It is not a second runtime.
@@ -79,9 +79,8 @@ navigation 18; **380 passed / 0 failed**. The three packages also pass
 
 The source repository is
 [`GhabiX/spine-sdk-plugin`](https://github.com/GhabiX/spine-sdk-plugin). The
-manual `.github/workflows/publish.yml` workflow publishes SDK, host, and Pi
-plugin in dependency order. Configure npm Trusted Publishing separately for
-each package before dispatching it.
+manual `.github/workflows/publish.yml` workflow publishes one selected package.
+Configure npm Trusted Publishing for that package before dispatching it.
 
 Integration evidence is in `scaffold/project-tree-poc`, not in this package:
 
@@ -138,3 +137,48 @@ Experimental, because the proof lives in the poc and not in a deployed host:
 4. Dispose the host registration to drop the live plugin. This does not delete
    an existing Git history. Leave that history in place and stop passing the
    store; deleting it is not the rollback path.
+
+## npm publishing
+
+The public Pi extension is `@spinejit/pi-spinejit`; SDK and host remain
+`@spinejit/spine-sdk` and `@spinejit/spine-host`. All three currently use `0.1.0`.
+The rename changes the plugin package and host registration identity; compiled
+entrypoints and exported subpaths are preserved. Update companion packages
+together with their new import and host dependency references.
+
+Run `npm test` and inspect the plugin tarball before publishing. Verify a clean
+consumer resolves the published SDK/host and Pi discovers the compiled extension.
+The manual workflow defaults to `package: plugin`, so a plugin release does not
+attempt to republish existing SDK/host versions. When those versions change,
+publish SDK, then host, then plugin as applicable.
+
+A new npm package requires an authenticated first publish or a configured npm
+publishing mechanism. The old package's Trusted Publisher setting does not
+transfer to the new name. For subsequent OIDC releases configure
+`@spinejit/pi-spinejit` with GitHub owner `GhabiX`, repository `spine-sdk-plugin`,
+and workflow `publish.yml`.
+
+After publishing and verifying the new package, mark the old version deprecated:
+
+```bash
+npm deprecate '@spinejit/spine-plugin@0.1.0' 'Renamed to @spinejit/pi-spinejit. Install with: pi install npm:@spinejit/pi-spinejit. Remove the old package and restart Pi; do not load both.'
+```
+
+Deprecation preserves old installations and provides a migration warning.
+Only apply it after the new package can be installed. The repository name stays
+`spine-sdk-plugin` because it also contains the SDK and host.
+
+Verify npm metadata, clean installation, the direct Pi detail page, and Pi
+catalog search separately. A working detail page does not prove catalog search
+inclusion. The `pi-package` keyword and `pi.extensions` are present; discovery
+still depends on upstream indexing.
+
+### pi-spinejit 0.1.0 rename validation (2026-10-08)
+
+`npm test`: 380 passed, 0 failed (SDK 8, host 18, Pi plugin 175,
+SpineTree 161, navigation 18). Core-source verification passed for 48 files.
+The packed plugin passed an isolated npm install using published dependencies;
+Pi 0.87.1 loaded one extension with zero errors and all four Spine tools.
+All seven exported subpaths imported successfully. Tarball integrity and
+compiled entry inclusion were checked before publishing. These are package and
+loader checks, not a new live-model evaluation or Pi 1.x compatibility claim.

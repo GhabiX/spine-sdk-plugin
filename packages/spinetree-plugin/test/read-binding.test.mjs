@@ -17,7 +17,7 @@ const snapshot = { branches: { root: branch }, schema: "spinetree.snapshot/v2" }
 const binding = { agentId: "a", sessionId: "pi-a", branch: "root", scope: "scope-a", status: "running" };
 async function hostFor(options, sessions) {
   const host = new SpinePluginHost({ sessions });
-  host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0" }, activate() {} });
+  host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/pi-spinejit", version: "0.1.0" }, activate() {} });
   host.register(createSpineTreePlugin(options));
   await host.activateAll();
   return host;

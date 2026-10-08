@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createNodeSpineRuntime } from "@spinejit/spine-sdk/node";
-import { SpineController } from "@spinejit/spine-plugin";
+import { SpineController } from "@spinejit/pi-spinejit";
 import { SpinePluginHost } from "@spinejit/spine-host";
 import {
   commitSpineTreeScopes, createSpineTreePlugin, GitSpineTreeAgentRegistry, GitSpineTreeStore, MemorySpineTreeStore,
@@ -38,7 +38,7 @@ async function canonical(t) {
 
 async function readHost(t, store) {
   const host = new SpinePluginHost();
-  host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0" }, activate() {} });
+  host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/pi-spinejit", version: "0.1.0" }, activate() {} });
   host.register(createSpineTreePlugin({ store }));
   await host.activateAll();
   t.after(() => host.dispose());
@@ -232,7 +232,7 @@ for (const home of ["root", "work"]) test(`capped mapping can rejuvenate and reb
   const registry = new GitSpineTreeAgentRegistry(store);
   let replacement = { agentId: "b", sessionId: "pi-b", branch: "work", status: "running", bindingId: "binding-b", leaseId: "lease-b", operationId: "pending", epoch: 0, scopeCursor: [0] };
   const host = new SpinePluginHost();
-  host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0" }, activate() {} });
+  host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/pi-spinejit", version: "0.1.0" }, activate() {} });
   host.register(createSpineTreePlugin({ store, registry, rejuvenator: { async provision(context) {
     assert.deepEqual(context.branch.memory, snapshot(store).branches.work.memory);
     replacement = { ...replacement, operationId: context.executionId };

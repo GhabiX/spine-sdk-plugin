@@ -2,6 +2,16 @@ name: Publish npm packages
 
 on:
   workflow_dispatch:
+    inputs:
+      package:
+        description: Package to publish (publish changed SDK/host versions first)
+        required: true
+        type: choice
+        default: plugin
+        options:
+          - plugin
+          - sdk
+          - host
 
 permissions:
   contents: read
@@ -30,14 +40,6 @@ jobs:
       - name: Build and test all packages
         run: npm test
 
-      - name: Publish SDK
-        working-directory: packages/sdk
-        run: npm publish --access public
-
-      - name: Publish host
-        working-directory: packages/host
-        run: npm publish --access public
-
-      - name: Publish Pi plugin
-        working-directory: packages/plugin
+      - name: Publish selected package
+        working-directory: packages/${{ inputs.package }}
         run: npm publish --access public

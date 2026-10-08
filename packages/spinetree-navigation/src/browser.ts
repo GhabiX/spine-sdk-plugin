@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth, wrapTextWithAnsi, type KeybindingsManager, type MarkdownTheme } from "@earendil-works/pi-tui";
-import type { SpineTreeView } from "@spinejit/spine-plugin/pi/tree-view";
+import type { SpineTreeView } from "@spinejit/pi-spinejit/pi/tree-view";
 import {
   spineTreeBranch,
   spineTreeBrand,
@@ -8,7 +8,7 @@ import {
   spineTreeLabel,
   spineTreeMarker,
   spineTreeMarkerText,
-} from "@spinejit/spine-plugin/pi/tree-style";
+} from "@spinejit/pi-spinejit/pi/tree-style";
 
 import type { NavigationData, NavigationNode } from "./data.js";
 

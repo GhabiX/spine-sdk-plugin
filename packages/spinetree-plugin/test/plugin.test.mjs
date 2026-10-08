@@ -33,7 +33,7 @@ import { createPiSessionAdapter } from "@spinejit/spine-host/pi";
 const canonicalPlugin = {
   manifest: {
     schema: "spine-host/v1",
-    id: "@spinejit/spine-plugin",
+    id: "@spinejit/pi-spinejit",
     version: "0.1.0",
     owns: ["spine.canonical"],
   },
@@ -43,7 +43,7 @@ const canonicalPlugin = {
 test("declares an ordinary Pi project coordination plugin", () => {
   assert.equal(SPINETREE_PLUGIN_MANIFEST.schema, "spine-host/v1");
   assert.equal(SPINETREE_PLUGIN_MANIFEST.id, "@spinetree/plugin");
-  assert.deepEqual(SPINETREE_PLUGIN_MANIFEST.requires, ["@spinejit/spine-plugin"]);
+  assert.deepEqual(SPINETREE_PLUGIN_MANIFEST.requires, ["@spinejit/pi-spinejit"]);
   assert.deepEqual(SPINETREE_PLUGIN_MANIFEST.owns, ["spinetree.project-state"]);
   assert.equal(SPINETREE_PLUGIN_MANIFEST.toolNamespace, "spinetree");
   assert.equal(SPINETREE_PLUGIN_MANIFEST.storageNamespace, "spinetree");

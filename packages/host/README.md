@@ -40,5 +40,5 @@ and it never creates a second canonical Spine reducer.
 
 ## Package installation
 
-This package is installed automatically by `@spinejit/spine-plugin`; users do
+This package is installed automatically by `@spinejit/pi-spinejit`; users do
 not need to install it separately.

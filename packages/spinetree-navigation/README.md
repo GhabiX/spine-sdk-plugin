@@ -1,6 +1,6 @@
 # SpineTree navigation for Pi
 
-Optional companion to `@spinejit/spine-plugin`. The core alone displays the bottom
+Optional companion to `@spinejit/pi-spinejit`. The core alone displays the bottom
 tree and registers no browsing command. Loading this package adds
 `/spine-tree [node-id]`; only this package owns that command.
 
@@ -9,7 +9,7 @@ tree and registers no browsing command. Loading this package adds
 Build from the `scaffold/spine-sdk-plugin` workspace:
 
 ```sh
-npm run build -w @spinejit/spine-plugin
+npm run build -w @spinejit/pi-spinejit
 npm run build -w @spinejit/spinetree-navigation
 pi -e ./packages/plugin/src/pi/extension.ts -e ./packages/spinetree-navigation/src/extension.ts
 ```

@@ -128,7 +128,7 @@ export interface CreatePiExtensionOptions {
 
 export const SPINE_CANONICAL_PLUGIN_MANIFEST: PluginManifest = {
   schema: "spine-host/v1",
-  id: "@spinejit/spine-plugin",
+  id: "@spinejit/pi-spinejit",
   version: "0.1.0",
   owns: ["spine.canonical"],
   toolNamespace: "spine",
@@ -185,7 +185,7 @@ function activatePiExtension(
   const claim: { owner?: string } = {};
   pi.events.emit(compactionOwnerEvent, claim);
   if (claim.owner !== undefined) {
-    throw new Error(`Pi compaction plugin conflict: @spinejit/spine-plugin cannot load with ${claim.owner}. Enable only one compaction plugin.`);
+    throw new Error(`Pi compaction plugin conflict: @spinejit/pi-spinejit cannot load with ${claim.owner}. Enable only one compaction plugin.`);
   }
   const configToml = loadPiSpineConfigToml();
   const runtimeFactory = options.runtimeFactory ?? {
@@ -227,7 +227,7 @@ function activatePiExtension(
     publishCommitted,
   );
   pi.events.on(compactionOwnerEvent, (query) => {
-    (query as { owner?: string }).owner = "@spinejit/spine-plugin";
+    (query as { owner?: string }).owner = "@spinejit/pi-spinejit";
   });
 }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeSpineRuntime } from "@spinejit/spine-sdk/node";
-import { SpineController } from "@spinejit/spine-plugin";
+import { SpineController } from "@spinejit/pi-spinejit";
 import { SpinePluginHost } from "@spinejit/spine-host";
 import {
   MemorySpineTreeStore, GitSpineTreeAgentRegistry, createSpineTreePlugin, commitSpineTreeScopes,
@@ -13,7 +13,7 @@ async function fixture(t) {
   const store = new MemorySpineTreeStore({ schema: "spinetree.snapshot/v2", branches: { root }, registry: { parent: owner } });
   const registry = new GitSpineTreeAgentRegistry(store);
   const host = new SpinePluginHost();
-  host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0" }, activate() {} });
+  host.register({ manifest: { schema: "spine-host/v1", id: "@spinejit/pi-spinejit", version: "0.1.0" }, activate() {} });
   host.register(createSpineTreePlugin({ store, registry }));
   await host.activateAll(); t.after(() => host.dispose());
   const state = () => store.readSnapshot(store.head());

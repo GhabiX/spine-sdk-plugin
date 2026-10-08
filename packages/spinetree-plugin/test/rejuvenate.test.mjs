@@ -7,7 +7,7 @@ import { createSpineTreePlugin, GitSpineTreeAgentRegistry, GitSpineTreeStore,
 import { SpinePluginHost } from "@spinejit/spine-host";
 
 const canonicalPlugin = {
-  manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0", owns: ["spine.canonical"] }, activate() {},
+  manifest: { schema: "spine-host/v1", id: "@spinejit/pi-spinejit", version: "0.1.0", owns: ["spine.canonical"] }, activate() {},
 };
 export const fixtureSnapshot = () => ({ branches: {
   root: { id: "root", parent: null, goal: "project", constraints: ["c0"], skills: ["s0"], tools: ["t0"], memory: "root-memory", memoryVersion: 1, memorySource: "root-scope", status: "live" },

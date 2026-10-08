@@ -53,7 +53,7 @@ export const SPINETREE_LOADABLE_PLUGINS: readonly SpineTreeLoadablePlugin[] = [
     id: "@spinejit/spinetree-navigation",
     version: "0.1.0",
     packageName: "@spinejit/spinetree-navigation",
-    requires: ["@spinejit/spine-plugin"],
+    requires: ["@spinejit/pi-spinejit"],
     capability: "spinetree.navigation",
     namespace: "spine-tree",
     tools: [],
@@ -106,7 +106,7 @@ export function spineTreeManifestFor(ids: readonly string[]): PluginManifest {
     schema: "spine-host/v1",
     id: "@spinetree/plugin",
     version: "0.1.0",
-    requires: ["@spinejit/spine-plugin"],
+    requires: ["@spinejit/pi-spinejit"],
     owns,
     ...(owns.length === 0 ? {} : {
       toolNamespace: "spinetree",

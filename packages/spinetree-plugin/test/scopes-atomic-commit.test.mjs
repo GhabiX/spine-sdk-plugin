@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createNodeSpineRuntime } from "@spinejit/spine-sdk/node";
-import { SpineController } from "@spinejit/spine-plugin";
+import { SpineController } from "@spinejit/pi-spinejit";
 import { commitSpineTreeScopes, GitSpineTreeStore, GitSpineTreeAgentRegistry,
   MemorySpineTreeStore, SpineTreeChangeError } from "../dist/index.js";
 

@@ -1,10 +1,10 @@
 {
-  "name": "@spinejit/spine-plugin",
+  "name": "@spinejit/pi-spinejit",
   "version": "0.1.0",
   "type": "module",
   "license": "Apache-2.0",
   "author": "GhabiX",
-  "description": "Pi SpineJIT extension backed by the portable Spine SDK.",
+  "description": "SpineJIT context management for Pi, backed by the portable Spine SDK.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/GhabiX/spine-sdk-plugin.git",

@@ -19,7 +19,7 @@ import {
 } from "../dist/index.js";
 
 const canonicalPlugin = {
-  manifest: { schema: "spine-host/v1", id: "@spinejit/spine-plugin", version: "0.1.0", owns: ["spine.canonical"] },
+  manifest: { schema: "spine-host/v1", id: "@spinejit/pi-spinejit", version: "0.1.0", owns: ["spine.canonical"] },
   activate() {},
 };
 

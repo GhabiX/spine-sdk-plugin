@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeSpineRuntime } from "@spinejit/spine-sdk/node";
-import { SpineController } from "@spinejit/spine-plugin";
+import { SpineController } from "@spinejit/pi-spinejit";
 import { commitSpineTreeScopes, GitSpineTreeAgentRegistry, MemorySpineTreeStore } from "../dist/index.js";
 
 const project = (id, parent = null) => ({ id, parent, goal: id, constraints: [], skills: [], tools: [], memory: null, memoryVersion: 0, memorySource: null, status: "live" });

@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createNodeSpineRuntime } from "@spinejit/spine-sdk/node";
-import { SpineController } from "@spinejit/spine-plugin";
+import { SpineController } from "@spinejit/pi-spinejit";
 import { commitSpineTreeScopes, GitSpineTreeStore, GitSpineTreeAgentRegistry } from "../dist/index.js";
 
 const oldScope = { agentId: "old", sessionId: "old-session", thread: "old-thread", epoch: 0, nodeId: [0, 1] };

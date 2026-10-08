@@ -1095,7 +1095,7 @@ export const SPINETREE_PLUGIN_MANIFEST: PluginManifest = {
   schema: "spine-host/v1",
   id: "@spinetree/plugin",
   version: "0.1.0",
-  requires: ["@spinejit/spine-plugin"],
+  requires: ["@spinejit/pi-spinejit"],
   owns: ["spinetree.project-state"],
   toolNamespace: "spinetree",
   commandNamespace: "spinetree",

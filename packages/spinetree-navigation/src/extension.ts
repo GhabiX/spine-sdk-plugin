@@ -4,7 +4,7 @@ import {
   type SpineTreeViewConnection,
   type SpineTreeViewLease,
   type SpineTreeViewRequest,
-} from "@spinejit/spine-plugin/pi/tree-view";
+} from "@spinejit/pi-spinejit/pi/tree-view";
 
 import { SpineTreeBrowser } from "./browser.js";
 import { createNavigationData } from "./data.js";

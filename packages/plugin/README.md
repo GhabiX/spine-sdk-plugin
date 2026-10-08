@@ -1,4 +1,30 @@
-# Spine plugin prompt configuration
+# Pi SpineJIT
+
+SpineJIT context management for Pi, backed by the portable Spine SDK.
+Install one package; npm installs the SDK and host dependencies automatically:
+
+```bash
+pi install npm:@spinejit/pi-spinejit
+```
+
+Version `0.1.0` targets Pi `0.87.1`. Pi 1.x compatibility has not been verified.
+
+## Migrating from @spinejit/spine-plugin
+
+The public package is now `@spinejit/pi-spinejit`. Stop the current session,
+then replace the old installation:
+
+```bash
+pi remove npm:@spinejit/spine-plugin
+pi install npm:@spinejit/pi-spinejit
+```
+
+Use `--local` on both commands for project installations, then restart Pi.
+Do not load both names together. Update pinned package settings and imports to
+the new name; all exported subpaths remain available. SDK and host names stay
+the same.
+
+## Spine plugin prompt configuration
 
 Pi loads its prompt configuration from `spine.toml` in this package. This file
 overrides the embedded `spine-core` prompt defaults, so updating the shared WASM
@@ -31,15 +57,15 @@ From this repository's root, build the TypeScript packages in dependency order:
 ```bash
 npm run build -w @spinejit/spine-sdk
 npm run build -w @spinejit/spine-host
-npm run build -w @spinejit/spine-plugin
+npm run build -w @spinejit/pi-spinejit
 pi install /absolute/path/to/spine-sdk-plugin/packages/plugin
 ```
 
-After the public packages are released, users install only the Pi package; npm
+Users install only the Pi package; npm
 resolves the matching SDK and host dependencies automatically:
 
 ```bash
-pi install npm:@spinejit/spine-plugin
+pi install npm:@spinejit/pi-spinejit
 ```
 
 Local directory installation and packed installation use the same compiled

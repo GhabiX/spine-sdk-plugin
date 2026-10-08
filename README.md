@@ -1,4 +1,4 @@
-# Spine SDK Plugin
+# Pi SpineJIT and Spine SDK
 
 This directory is the source of the **SDK-backed** Pi/DSH Spine plugin. Daily
 Pi should `pi install` `packages/plugin` from here. EvoClaw vendor copies must
@@ -9,17 +9,19 @@ TypeScript source changes require the SDK, host, then plugin builds described
 
 ## Published Pi installation
 
-The public package is `@spinejit/spine-plugin`. Users install one package; npm
+The public package is `@spinejit/pi-spinejit`. Users install one package; npm
 resolves the matching SDK and host dependencies:
 
 ```bash
-pi install npm:@spinejit/spine-plugin
+pi install npm:@spinejit/pi-spinejit
 ```
 
 The source repository is
 [`GhabiX/spine-sdk-plugin`](https://github.com/GhabiX/spine-sdk-plugin). Release
-publishing is manual through the `Publish npm packages` workflow after the npm
-Trusted Publisher entries are configured for the three packages.
+publishing is manual through the `Publish npm packages` workflow: select `plugin`
+for `@spinejit/pi-spinejit`. Configure its npm Trusted Publisher entry before
+using the workflow. SDK and host are published separately only when their
+versions change. See [publishing and migration](doc/RELEASE.md#npm-publishing).
 
 This repository is the portable Spine product boundary for Node agent hosts.
 It packages one Rust semantic kernel behind a narrow WASM ABI, a TypeScript SDK,
@@ -31,6 +33,23 @@ current `spine-core` implementation remains in SpineCodex and is identified by
 `core-source.json`; this repository never carries a copied reducer. The
 [release gate](doc/RELEASE.md) states which SpineTree paths are usable and
 which remain experimental.
+
+## Migrating from the old package name
+
+`@spinejit/spine-plugin` has been renamed to `@spinejit/pi-spinejit`.
+For a global installation, stop the current session, then run:
+
+```bash
+pi remove npm:@spinejit/spine-plugin
+pi install npm:@spinejit/pi-spinejit
+```
+
+For a project installation, add `--local` to both commands. Restart Pi after
+switching and load only one of these packages. Replace the package name in any
+pinned settings or JavaScript imports; the exported subpaths are unchanged.
+The SDK and host package names remain unchanged. Version `0.1.0` retains the
+existing Pi `0.87.1` compatibility requirement; this rename does not establish
+compatibility with Pi 1.x.
 
 ## Protocol pairing
 
@@ -52,7 +71,7 @@ saved v1 recipe snapshots are not accepted as v2. See the
 - `packages/host`: `@spinejit/spine-host`, the minimal Pi Plugin Host contract
   for ownership, dependency order, namespaces, lifecycle, immutable event
   observation, private storage, and session requests.
-- `packages/plugin`: `@spinejit/spine-plugin`, shared controller plus `./pi`
+- `packages/plugin`: `@spinejit/pi-spinejit`, shared controller plus `./pi`
   and `./deepseek-harness` entrypoints.
 - `packages/spinetree-plugin`: `@spinetree/plugin`, an ordinary Pi project
   coordination plugin. It owns only the `spinetree` namespaces and does not
@@ -130,7 +149,7 @@ state.
 ## Pi Plugin Host contract
 
 Pi remains the outer host. `@spinejit/spine-host` is a thin contract inside
-that host, not another process or runtime. `@spinejit/spine-plugin` is the
+that host, not another process or runtime. `@spinejit/pi-spinejit` is the
 single `spine.canonical` owner for Scope transitions, sampling, projection,
 compaction, recovery, and Spawn. `@spinetree/plugin` is an ordinary contributor
 that exposes `spinetree_*` tools and a namespaced status command. Without
@@ -216,8 +235,8 @@ reconnection stay outside the plugin.
 
 ## Pi extension
 
-`@spinejit/spine-plugin` declares `./dist/pi/extension.js` in `pi.extensions`.
-The same compiled module is exposed by `@spinejit/spine-plugin/pi/extension`
+`@spinejit/pi-spinejit` declares `./dist/pi/extension.js` in `pi.extensions`.
+The same compiled module is exposed by `@spinejit/pi-spinejit/pi/extension`
 and is included by the package's `files` list. Local directory and packed
 installation therefore use the same entry through Pi's loader and host virtual
 module support.
@@ -227,7 +246,7 @@ For Pi SDK development, run these commands from this repository's root:
 ```bash
 npm run build -w @spinejit/spine-sdk
 npm run build -w @spinejit/spine-host
-npm run build -w @spinejit/spine-plugin
+npm run build -w @spinejit/pi-spinejit
 pi install /absolute/path/to/spine-sdk-plugin/packages/plugin
 ```
 
@@ -278,7 +297,7 @@ tree; the old print-only `/spine-tree` command is intentionally no longer regist
 
 The core is the sole widget owner. Navigation requests a copied read-only
 snapshot through the versioned `spinejit:tree-view:v1` Pi event and temporarily
-contributes a bounded view via `@spinejit/spine-plugin/pi/tree-view`. Discovery
+contributes a bounded view via `@spinejit/pi-spinejit/pi/tree-view`. Discovery
 occurs when the command runs, so either extension load order works. View failures
 stay inside the UI error boundary. Background publications update the default
 tree while the browser holds its snapshot; releasing the view displays the latest
@@ -374,7 +393,7 @@ process has restarted.
 
 ## DeepSeek Harness extension
 
-`@spinejit/spine-plugin/deepseek-harness` binds directly to the public
+`@spinejit/pi-spinejit/deepseek-harness` binds directly to the public
 `Session` and `SessionStore` contracts. It registers strict versioned codecs
 for `spine/archive` and `spine/spawn-terminal`, publishes the complete ordered
 model context through the core `surface/projection` event, and awaits
@@ -389,7 +408,7 @@ ends. Complete durable Spawn staging can be recovered in canonical task order;
 partial, duplicate, or malformed staging fails closed.
 
 The loadable Cordis entry is
-`@spinejit/spine-plugin/deepseek-harness/extension`. One DSH step is one
+`@spinejit/pi-spinejit/deepseek-harness/extension`. One DSH step is one
 sampling cycle: typed session messages are admitted as sources, `llm/stream`
 durably begins the attempt, typed native and Code Mode tool events stage Spine
 operations, and the next pre-step or turn-stopping boundary performs
